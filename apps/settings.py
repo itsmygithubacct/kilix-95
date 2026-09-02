@@ -40,6 +40,16 @@ APPEARANCE = [
      ["block", "beam", "underline"]),
     ("tab_bar_style", "Tab bar style", "choice",
      ["fade", "separator", "powerline", "slant", "hidden"]),
+    # A shared SDK key rather than a kitty.conf one. It is persisted by
+    # membership in shared_settings.MANAGED_KEYS, not by which group it appears
+    # in, so it belongs wherever a user would look for it -- and someone after
+    # the tab bar's options should find both of them together.
+    (
+        shared_settings.TAB_BAR_EDGE_KEY,
+        "Tab bar edge",
+        "choice",
+        list(shared_settings.TAB_BAR_EDGE_CHOICES),
+    ),
 ]
 BEHAVIOR = [
     ("scrollback_lines", "Scrollback lines", "text", None),
