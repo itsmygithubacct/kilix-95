@@ -20,6 +20,16 @@ kilix desktop
 
 Quit through Start -> Shut Down..., or press `Ctrl+Alt+Q`.
 
+## Release 0.2.2 — in development
+
+Prepared for the coordinated Plebian-OS 0.2.2 candidate, upgrading from 0.2.1.
+Image, upgrade and final human acceptance remain pending.
+
+- CI pairs this provider with the coordinated host's floating Start and status
+  widget menus. The host's dropdowns appear above the desktop pane.
+- Settings exposes the page-strip edge. Desktop Amp and sibling TUI launches
+  carry the selected content installation root.
+
 ## Release 0.2.0
 
 Prepared for the coordinated Plebian-OS 0.2.0 release.
