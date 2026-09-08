@@ -1145,7 +1145,10 @@ class Shell:
             return [executable]
         kilix = os.path.join(KILIX_HOME, "kilix")
         if os.path.isfile(kilix) and os.access(kilix, os.X_OK):
-            return [kilix, "kilix-tui"]
+            import games
+
+            return [kilix, "kilix-tui", "--content-root",
+                    os.path.normpath(games.APPS_DIR)]
         return None
 
     @staticmethod
@@ -1201,7 +1204,13 @@ class Shell:
         be reached without changing the session's provider."""
         target = self.kilix_tui_target()
         if target is not None:
-            return self._tab(target, "Kilix TUI", os.path.expanduser("~"))
+            import games
+
+            # The terminal's environment may belong to a different desktop.
+            # Direct installed TUI and host fallback share this install root;
+            # the fallback also passes it explicitly to the host launcher.
+            return self._tab(target, "Kilix TUI", os.path.expanduser("~"), env={
+                "KILIX_CONTENT_ROOT": os.path.normpath(games.APPS_DIR)})
         wm.msgbox(
             self.desk, "Kilix TUI",
             "Neither an installed Kilix TUI desktop nor its pinned "
