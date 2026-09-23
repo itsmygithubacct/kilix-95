@@ -366,7 +366,7 @@ try:
                  sha256="0" * 64)
     assert False, "checksum mismatch was accepted"
 except games.kilix_content.InstallError as e:
-    # Content sanitizes mirror failures so paths and URL tokens cannot leak.
+    # The desktop wrapper sanitizes mirror failures before showing them.
     assert src not in str(e)
 assert not os.path.exists(dst), "bad artifact must be removed"
 games._fetch("file://" + src, dst, lambda _msg: None,
