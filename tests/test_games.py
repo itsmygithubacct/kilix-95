@@ -135,7 +135,7 @@ assert "kilix-lights" in games.GAMES
 assert games.GAMES["kilix-lights"]["label"] == "Kilix Lights"
 assert games.GAMES["kilix-lights"]["icon"] == "lights"
 lights_spec = games.CONTENT_CATALOG.require("kilix-lights")
-assert lights_spec.binary == "bin/kilix-lights"
+assert lights_spec.binary == "kilix-lights/bin/kilix-lights"
 write("")
 assert games.game_ready("kilix-lights") is None
 assert "lights" in icons.ICONS
@@ -143,7 +143,9 @@ icons.get("lights", 16)
 icons.get("lights", 32)
 
 external_lights = os.path.join(tmp, "external-lights")
-lights_exe = os.path.join(external_lights, "bin", "kilix-lights")
+# The configured directory is the content root; the catalog names the
+# executable below it (kilix-lights/bin/kilix-lights in the games monorepo).
+lights_exe = os.path.join(external_lights, *lights_spec.binary.split("/"))
 os.makedirs(os.path.dirname(lights_exe))
 with open(lights_exe, "w") as f:
     f.write("#!/bin/sh\nexit 0\n")
