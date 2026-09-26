@@ -84,6 +84,7 @@ PANE_BUTTONS = [
         "choice",
         list(shared_settings.PANE_MEMORY_MODE_CHOICES),
     ),
+    ("KILIX_CHROME_BUTTON_LOG", "Open pane session log", "bool", "1"),
     ("KILIX_CHROME_BUTTON_SYNCHRONIZE_INPUT", "Synchronize keyboard input", "bool", "1"),
     ("KILIX_CHROME_BUTTON_FONT_INCREASE", "Increase text size", "bool", "1"),
     ("KILIX_CHROME_BUTTON_FONT_DECREASE", "Decrease text size", "bool", "1"),
