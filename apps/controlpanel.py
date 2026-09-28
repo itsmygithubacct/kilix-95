@@ -231,7 +231,7 @@ class DateTimeProperties(wm.Window):
 
     def _tick(self, now):
         current = self._now()
-        stamp = current.strftime("%H:%M:%S")
+        stamp = current.strftime("%I:%M:%S %p")
         if stamp != self._last:
             self._last = stamp
             self.time_label.set(stamp)
