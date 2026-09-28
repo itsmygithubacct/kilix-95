@@ -277,3 +277,21 @@ copied_terminal_launchers_strip_field_codes_before_shell_execution()
 copied_launcher_expands_field_codes_without_argument_debris()
 malformed_copied_launcher_is_rejected()
 print("ok")
+
+
+def terminal_desktop_entry_opens_a_terminal_pane_not_a_nested_host():
+    d = H.make_desk()
+    with patch.object(d.shell, "_tab") as tab, \
+            patch.object(d.shell, "open_x11_tab") as x11:
+        d.shell.launch({"Name": "Kilix", "Exec": "/usr/bin/kilix", "Terminal": "false"})
+        tab.assert_called_once()
+        assert tab.call_args.args[0] == [os.environ.get("SHELL") or "/bin/bash"]
+        x11.assert_not_called()
+    with patch.object(d.shell, "_tab") as tab, \
+            patch.object(d.shell, "open_x11_tab") as x11:
+        d.shell.launch({"Name": "Task", "Exec": "kitty -e top", "Terminal": "false"})
+        tab.assert_called_once()
+        assert tab.call_args.args[0] == ["top"]
+        x11.assert_not_called()
+
+terminal_desktop_entry_opens_a_terminal_pane_not_a_nested_host()

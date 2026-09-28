@@ -635,6 +635,19 @@ class Shell:
                       icon="error")
             return
         sanitized_cmd = " ".join(shell_quote(arg) for arg in argv)
+        # Imported Kilix/Kitty .desktop entries say Terminal=false, but are
+        # terminal hosts, not applications to capture inside another desktop.
+        if mode == "run" and os.path.basename(argv[0]) in {"kilix", "kitty"}:
+            if len(argv) == 1:
+                self._tab([os.environ.get("SHELL") or "/bin/bash"], name, cwd=cwd)
+            elif argv[1] == "-e" and len(argv) > 2:
+                self._tab(argv[2:], name, cwd=cwd)
+            else:
+                wm.msgbox(self.desk, name,
+                          "Use a terminal launcher for Kilix/Kitty commands.\n"
+                          "A terminal host cannot be opened as an X11 app.",
+                          icon="error")
+            return
         if vbox.is_virtualbox_argv(argv):
             self.open_x11_tab(argv, name, cwd=cwd, fill=(mode == "fullscreen"),
                               size=self.desk.size() if mode == "fullscreen"
