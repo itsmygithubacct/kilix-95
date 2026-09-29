@@ -1084,3 +1084,22 @@ is silent. **Disk space low** watches the writable local filesystems used by
 A successful Plebian-OS whole-stack update run by the desktop user announces
 **update complete. restart required** when automatic restart was not requested.
 Failed updates and old notices at desktop startup are silent.
+
+### Document Reader
+
+Open **Start → Programs → Document Reader** for local TXT, Markdown or PDF
+files. Open a file, then press **Play**. The window shows the current passage
+and progress, with Pause/Resume, Stop, Previous and Next controls. Resume repeats
+the paused passage; Stop returns to the beginning. Closing the window stops its
+own playback. The voice daemon does not need to be running.
+
+**Use Kristin for read-aloud…** is an explicit opt-in: confirm the choice, then
+complete the first-use download notice in its terminal. Only successful setup
+changes the shared read-aloud default to Piper Kristin. The startup/system voice
+remains a separate preference. Use **Voice settings…** to change the voice later.
+
+Markdown is read as prose, with fenced code and formatting skipped. PDF reading
+uses `pdftotext` from `poppler-utils` (included by Plebian-OS); scanned pages
+need OCR first. Documents are limited to 16 MiB, with up to 8 MiB of UTF-8 text.
+Long documents are read passage by passage without the terminal-pane text limit.
+Desktop TXT/MD/PDF file icons also have a **Read aloud…** context action.

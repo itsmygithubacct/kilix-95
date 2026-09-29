@@ -535,6 +535,8 @@ class Taskbar:
                    action=shell.open_kilix_tui),
                 MI("System Voice", icon="speak",
                    action=lambda: shell.open_app("systemvoice")),
+                MI("Document Reader", icon="speak",
+                   action=lambda: shell.open_app("documentreader")),
                 MI("Read Aloud Settings", icon="speak",
                    action=shell.open_kilix_tts),
                 MI("Dictation Settings", icon="microphone",

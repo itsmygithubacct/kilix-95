@@ -39,7 +39,7 @@ MODE_KEYS = {"kilix tab": "tab", "kilix os-window": "window",
              "kilix fullscreen": "fullscreen",
              "kilix run (X11 app)": "run", "web browser": "browse"}
 ICON_CHOICES = ["exe", "terminal", "mux", "doc", "doc_text", "doc_image", "folder",
-                "computer", "browser", "notepad", "settings", "display",
+                "computer", "browser", "notepad", "documentreader", "settings", "display",
                 "drive", "home", "run", "flame"]
 NAME_ERROR = "Use a plain name, not a path."
 
@@ -339,6 +339,9 @@ class Shell:
             if kind == "path" and not os.path.isdir(arg):
                 items.append(MI("Open with Notepad", icon="notepad",
                                 action=lambda: self.open_app("notepad", arg)))
+            if kind == "path" and os.path.splitext(arg)[1].lower() in {".txt", ".md", ".markdown", ".pdf"}:
+                items.append(MI("Read aloud…", icon="speak",
+                                action=lambda: self.open_app("documentreader", arg)))
             if kind in ("launcher", "path"):
                 paths = [entry["data"][1] for entry in self._sel_or_one(item)
                          if entry["data"][0] in ("launcher", "path")]
@@ -966,6 +969,8 @@ class Shell:
         wm.msgbox(
             self.desk,
             "Kilix Voice Help",
+            "Open Start > Programs > Document Reader to read TXT, Markdown, "
+            "or PDF files. Its Kristin button optionally changes your shared voice.\n\n"
             "Read Aloud and Dictation are the speaking-head and microphone "
             "buttons in the page strip at the top of Kilix.\n\n"
             "They work on terminal panes. Open Start > Programs > Terminal, "

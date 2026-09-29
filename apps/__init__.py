@@ -54,6 +54,9 @@ def open(desk, name, arg=None):
                 desk.wm.activate(w)
                 return
         desk.wm.add(settings.SettingsWin(desk))
+    elif name == "documentreader":
+        from . import documentreader
+        desk.wm.add(documentreader.DocumentReader(desk, arg))
     elif name == "systemvoice":
         from . import systemvoice
         systemvoice.open_window(desk)

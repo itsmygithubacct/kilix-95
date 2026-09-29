@@ -188,9 +188,9 @@ def controller(desk):
     return desk.system_voice
 
 
-def prepare(result, target):
+def prepare(result, target, option="--prepare-system-voice"):
     try:
-        code = subprocess.call([*target, '--prepare-system-voice'])
+        code = subprocess.call([*target, option])
     except OSError as error:
         print(error, file=sys.stderr)
         code = 1
@@ -202,11 +202,11 @@ def prepare(result, target):
     except OSError:
         pass  # Desktop cancelled/closed the job while setup was running.
     if code:
-        print('System voice was not enabled. You can retry in Settings.')
+        print('Voice setup did not finish. You can retry from the desktop.')
     return code
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 4 or sys.argv[1] != '--prepare':
+    if len(sys.argv) < 4 or sys.argv[1] not in ('--prepare', '--prepare-kristin'):
         raise SystemExit('usage: system_voice.py --prepare RESULT LAUNCHER [ARG ...]')
-    raise SystemExit(prepare(sys.argv[2], sys.argv[3:]))
+    raise SystemExit(prepare(sys.argv[2], sys.argv[3:], '--enable-kristin' if sys.argv[1] == '--prepare-kristin' else '--prepare-system-voice'))
