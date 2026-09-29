@@ -1062,3 +1062,9 @@ Piper silently. Closing the first-launch offer leaves voice disabled. Preference
 are per-user native desktop state and survive reboots and updates. A failed setup
 can be retried from the same window. `KILIX_SYSTEM_VOICE_OFFER=1` enables the offer
 outside Plebian-OS; `0` suppresses the offer without disabling a saved preference.
+
+While enabled, system voice also announces overheating, low/critical battery,
+loss of a previously connected physical network link, and sustained heavy
+swapping. Warnings play once per incident using clips prepared at startup.
+Temperature alerts use sensor Celsius values independently of display units.
+See the host SDK system-health documentation for thresholds and recovery rules.
