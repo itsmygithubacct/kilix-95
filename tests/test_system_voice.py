@@ -62,3 +62,34 @@ with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'0
         else:raise AssertionError('save error swallowed')
         assert not voice.state['enabled']
 print('ok')
+
+# Shutdown requests use the existing worker, await its acknowledgement, and
+# leave it alive in case the OS refuses power-off. Never power off in tests.
+with H.desktop_dir():
+    desk=H.make_desk();voice=V.controller(desk)
+    voice.state['enabled']=True
+    with mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), mock.patch('system_voice.subprocess.Popen') as spawn:
+        process=spawn.return_value;process.poll.return_value=None
+        voice.start()
+        def acknowledge():
+            with open(voice.log.name,'ab') as log:
+                log.write(b'System voice goodbye complete\n')
+        process.stdin.flush.side_effect=acknowledge
+        voice.goodbye()
+        process.stdin.write.assert_called_once_with(b'g')
+        process.terminate.assert_not_called()
+        process.stdin.write.reset_mock()
+        voice.state['enabled']=False
+        voice.goodbye()
+        process.stdin.write.assert_not_called()
+        voice.state['enabled']=True
+        process.stdin.flush.side_effect=None
+        with mock.patch('system_voice.time.monotonic',side_effect=[0,1,5]), mock.patch('system_voice.time.sleep'):
+            voice.goodbye()  # No acknowledgement: bounded wait, then power-off can proceed.
+        process.stdin.write.side_effect=BrokenPipeError()
+        voice.goodbye()  # failed speech cannot block shutdown
+        voice.close()
+    order=[]
+    with mock.patch.object(voice,'goodbye',side_effect=lambda:order.append('goodbye')), mock.patch.object(desk.shell,'_spawn_kitty_launch',side_effect=lambda *a:order.append(a[1])):
+        desk.shell._power_off()
+    assert order==['goodbye','systemctl poweroff']

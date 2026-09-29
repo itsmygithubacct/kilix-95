@@ -1068,3 +1068,11 @@ loss of a previously connected physical network link, and sustained heavy
 swapping. Warnings play once per incident using clips prepared at startup.
 Temperature alerts use sensor Celsius values independently of display units.
 See the host SDK system-health documentation for thresholds and recovery rules.
+
+With system voice enabled, normal machine shutdown says **Goodbye** using a
+clip cached at startup. Plebian-OS listens for logind's shutdown notification and
+holds a delay inhibitor only until playback finishes (bounded by logind's delay
+limit). The desktop's Shut Down action also requests the clip before power-off;
+the two paths suppress duplicate speech. Turning voice off, leaving the desktop,
+or restarting just the desktop stays silent. Forced shutdown or power loss
+cannot guarantee speech.

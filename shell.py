@@ -1722,6 +1722,9 @@ class Shell:
 
     # ── shutdown actions ────────────────────────────────────────────────────
     def _power_off(self):
+        voice = getattr(self.desk, 'system_voice', None)
+        if voice is not None:
+            voice.goodbye()
         # run in a tab so a permission error (rather than a silent no-op) shows
         self._spawn_kitty_launch(["--type=tab"], "systemctl poweroff",
                                  "Shut Down")

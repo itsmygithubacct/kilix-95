@@ -137,6 +137,24 @@ class Controller:
             elif 'System voice ready: Piper Kristin' in text:
                 self.status = 'Piper Kristin is ready for this session.'
 
+    def goodbye(self):
+        """Best-effort cached speech before the menu asks the OS to power off."""
+        if not self.state['enabled'] or self.process is None or self.process.poll() is not None:
+            return
+        try:
+            offset = os.path.getsize(self.log.name)
+            self.process.stdin.write(b'g')
+            self.process.stdin.flush()
+            deadline = time.monotonic()+4
+            while time.monotonic() < deadline and self.process.poll() is None:
+                with open(self.log.name, 'rb') as reader:
+                    reader.seek(offset)
+                    if b'System voice goodbye complete' in reader.read(8192):
+                        return
+                time.sleep(.05)
+        except (OSError, ValueError):
+            pass  # A missing/broken voice must never prevent power-off.
+
     def stop(self):
         if self.process is not None:
             self.process.stdin.close()
