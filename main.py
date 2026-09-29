@@ -1079,6 +1079,13 @@ class Desk:
             win.dirty = True
         self.dirty = True
 
+    def _start_system_voice(self):
+        try:
+            from system_voice import controller
+            controller(self).startup()
+        except Exception as error:
+            wm.msgbox(self, "System voice", str(error), icon="error")
+
     def _first_run_help(self):
         """First launch: open the Help book so a new user (e.g. a fresh
         Plebian-OS boot into the pixel desktop) gets oriented. A marker in
@@ -1130,7 +1137,12 @@ class Desk:
         except KeyboardInterrupt:
             pass
         finally:
-            self._restore_and_cleanup(self.term)
+            try:
+                voice = getattr(self, 'system_voice', None)
+                if voice is not None:
+                    voice.close()
+            finally:
+                self._restore_and_cleanup(self.term)
 
     def _restore_and_cleanup(self, term):
         # A dead Kitty/X connection can make restore raise.  Cleanup must not
@@ -1175,6 +1187,7 @@ class Desk:
             except Exception:
                 self.hardware_signature = ()
         self._first_run_help()
+        self._start_system_voice()
         self._first_run_password_nag()    # …and pop the change-password bubble
         last_blink = time.time()
         self._last_blit = 0.0

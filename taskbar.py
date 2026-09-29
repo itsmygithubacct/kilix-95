@@ -533,6 +533,8 @@ class Taskbar:
                    action=shell.open_tmux_manager),
                 MI("Kilix TUI", icon="terminal",
                    action=shell.open_kilix_tui),
+                MI("System Voice", icon="speak",
+                   action=lambda: shell.open_app("systemvoice")),
                 MI("Read Aloud Settings", icon="speak",
                    action=shell.open_kilix_tts),
                 MI("Dictation Settings", icon="microphone",
