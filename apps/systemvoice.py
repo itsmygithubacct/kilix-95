@@ -11,7 +11,7 @@ class SystemVoice(wm.Window):
         self.voice = controller(desk)
         self.add(W.Label(16, 16, 'Let Piper Kristin greet you when Kilix 95 starts.'))
         self.add(W.Label(16, 40, 'The voice downloads once and stays ready during your session.'))
-        self.add(W.Label(16, 58, 'Also speaks temperature, battery, network and memory alerts.'))
+        self.add(W.Label(16, 58, 'Also speaks system health, power and update messages.'))
         self.add(W.Label(16, 76, 'Startup message (leave blank for a silent startup):'))
         self.message = self.add(W.TextField(16, 98, 472, self.voice.state['greeting']))
         self.status = self.add(W.Label(16, 138, self.voice.status))

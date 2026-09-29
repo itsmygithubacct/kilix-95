@@ -1076,3 +1076,11 @@ limit). The desktop's Shut Down action also requests the clip before power-off;
 the two paths suppress duplicate speech. Turning voice off, leaving the desktop,
 or restarting just the desktop stays silent. Forced shutdown or power loss
 cannot guarantee speech.
+
+System voice also announces **power connected** / **running on battery** after
+a power-source change stays stable for four seconds. The initial power source
+is silent. **Disk space low** watches the writable local filesystems used by
+`/`, home and Kilix data; it warns below 5% available when less than 2 GiB remains.
+A successful Plebian-OS whole-stack update run by the desktop user announces
+**update complete. restart required** when automatic restart was not requested.
+Failed updates and old notices at desktop startup are silent.
