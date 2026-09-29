@@ -54,6 +54,9 @@ def open(desk, name, arg=None):
                 desk.wm.activate(w)
                 return
         desk.wm.add(settings.SettingsWin(desk))
+    elif name == "systemvoice":
+        from . import systemvoice
+        systemvoice.open_window(desk)
     elif name == "soundcp":
         from . import soundcp
         soundcp.open(desk)

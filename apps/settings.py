@@ -411,6 +411,10 @@ class SettingsWin(wm.Window):
         self.voice_model_button = self.add(W.Button(
             18, 280, 142, 24, "Install + use model",
             cb=self._install_voice_model))
+        self.system_voice_button = self.add(W.Button(
+            450, 280, 148, 24, "System voice…",
+            cb=lambda: desk.shell.open_app("systemvoice")))
+        self.panels[voice_tab].append(self.system_voice_button)
         self.voice_model_status = self.add(W.Label(
             170, 284, "Uses Kilix's verified lazy installer.",
             font=T.SMALL, color=T.SHADOW))

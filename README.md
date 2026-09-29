@@ -1047,3 +1047,18 @@ picked up by preference.
 
 Kilix 95 is released under the [GNU General Public License version 3](LICENSE)
 (`GPL-3.0-only`).
+
+### System voice
+
+On Plebian-OS, the first Kilix 95 launch offers **Enable system voice** in a
+window. Opting in opens the pinned Piper Kristin download notice; the desktop
+records the preference only after setup succeeds. A later desktop launch loads
+Piper in the background and says **hello** once. The provider stays warm during
+the desktop session. Startup does not block the desktop or download model weights.
+
+Use **Settings → Voice → System voice…** (or **Start → Programs → System Voice**)
+to edit the startup message or turn the feature off. An empty message preloads
+Piper silently. Closing the first-launch offer leaves voice disabled. Preferences
+are per-user native desktop state and survive reboots and updates. A failed setup
+can be retried from the same window. `KILIX_SYSTEM_VOICE_OFFER=1` enables the offer
+outside Plebian-OS; `0` suppresses the offer without disabling a saved preference.
