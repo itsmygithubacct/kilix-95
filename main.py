@@ -1093,6 +1093,13 @@ class Desk:
         except Exception as error:
             wm.msgbox(self, "Dictation", str(error), icon="error")
 
+    def _start_workflows_offer(self):
+        try:
+            from workflows_offer import controller
+            controller(self).startup()
+        except Exception as error:
+            wm.msgbox(self, "Kilix Workflows", str(error), icon="error")
+
     def _first_run_help(self):
         """First launch: open the Help book so a new user (e.g. a fresh
         Plebian-OS boot into the pixel desktop) gets oriented. A marker in
@@ -1145,9 +1152,14 @@ class Desk:
             pass
         finally:
             try:
-                voice = getattr(self, 'system_voice', None)
-                if voice is not None:
-                    voice.close()
+                try:
+                    workflows = getattr(self, 'workflows_offer', None)
+                    if workflows is not None:
+                        workflows.close()
+                finally:
+                    voice = getattr(self, 'system_voice', None)
+                    if voice is not None:
+                        voice.close()
             finally:
                 self._restore_and_cleanup(self.term)
 
@@ -1196,6 +1208,7 @@ class Desk:
         self._first_run_help()
         self._start_system_voice()
         self._start_dictation_offer()
+        self._start_workflows_offer()
         self._first_run_password_nag()    # …and pop the change-password bubble
         last_blink = time.time()
         self._last_blit = 0.0

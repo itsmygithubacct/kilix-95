@@ -1048,6 +1048,24 @@ picked up by preference.
 Kilix 95 is released under the [GNU General Public License version 3](LICENSE)
 (`GPL-3.0-only`).
 
+### Kilix Workflows
+
+On Plebian-OS, Kilix 95 asks at startup whether to enable Kilix Workflows.
+They use local language models only for tasks that need them; grammar and
+direct actions remain usable without model downloads. The visible setup reuses
+verified model files already on the computer and shows each licence before
+fetching a missing model. After you opt in, Kilix checks the models at each
+desktop start and brings up the same setup and licence screen if one is
+missing. Updates do not reset your choice.
+
+Choose **Enable Kilix Workflows** to start setup. A failed or interrupted setup
+can be retried from the same window. **Later** leaves the question open for a
+future launch, and **No thanks** declines it. Reopen setup from **Start →
+Programs → Kilix Workflows…** or **Start → Settings → Kilix Workflows…**.
+When workflows are enabled, the window offers **Check models** and **Turn
+off**. Existing files that fail verification are left unchanged and reported
+for attention; this setup does not replace a damaged or mismatched selection.
+
 ### System voice
 
 On Plebian-OS, the first Kilix 95 launch offers **Enable system voice** in a

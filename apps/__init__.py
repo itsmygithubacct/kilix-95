@@ -60,6 +60,9 @@ def open(desk, name, arg=None):
     elif name == "systemvoice":
         from . import systemvoice
         systemvoice.open_window(desk)
+    elif name == "workflows":
+        from . import workflows
+        workflows.open_window(desk)
     elif name == "soundcp":
         from . import soundcp
         soundcp.open(desk)

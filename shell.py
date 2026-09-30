@@ -912,6 +912,14 @@ class Shell:
         return None
 
     @staticmethod
+    def kilix_workflows_target():
+        """Use the selected host catalog, never an unrelated PATH checkout."""
+        launcher = os.path.join(KILIX_HOME, "kilix")
+        if os.path.isfile(launcher) and os.access(launcher, os.X_OK):
+            return [launcher, "app", "run", "kilix-needle", "--"]
+        return None
+
+    @staticmethod
     def kilix_tts_target():
         """Pinned launcher first, so it can refresh an older Voice runtime."""
         kilix = os.path.join(KILIX_HOME, "kilix")
