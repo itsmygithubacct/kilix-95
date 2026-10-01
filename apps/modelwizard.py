@@ -25,7 +25,7 @@ class ModelWizard(wm.Window):
         self.error = ''
         self.batch = False
         self.pool = ThreadPoolExecutor(max_workers=1)
-        self.future = self.pool.submit(backend.pages)
+        self.future = self.pool.submit(backend.pages, ensure_sizer=True)
         self.add(W.Label(18, 20, 'Checking available models and sizing recommendations…'))
         self.add(W.Button(510, 365, 110, 26, 'Later', cb=self.close))
         self.desk.tick_hooks.append(self.refresh)
