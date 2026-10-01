@@ -1206,9 +1206,11 @@ class Desk:
             except Exception:
                 self.hardware_signature = ()
         self._first_run_help()
-        self._start_system_voice()
-        self._start_dictation_offer()
-        self._start_workflows_offer()
+        try:
+            from apps.modelwizard import startup
+            startup(self)
+        except Exception as error:
+            wm.msgbox(self, "Model setup", str(error), icon="error")
         self._first_run_password_nag()    # …and pop the change-password bubble
         last_blink = time.time()
         self._last_blit = 0.0

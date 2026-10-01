@@ -1121,3 +1121,19 @@ uses `pdftotext` from `poppler-utils` (included by Plebian-OS); scanned pages
 need OCR first. Documents are limited to 16 MiB, with up to 8 MiB of UTF-8 text.
 Long documents are read passage by passage without the terminal-pane text limit.
 Desktop TXT/MD/PDF file icons also have a **Read aloud…** context action.
+
+## Model setup
+
+The startup **Model setup** window shows only unanswered categories. Each page
+has checkbox alternatives, a recommended/default selection where available,
+and sizing information. **Accept checked** or **No thanks** saves the choice;
+**Continue** advances within the same window. Reopen it from **Model Setup** in
+the Programs or Settings menu. Closing it preserves prior answers.
+
+After model selection, **Review licences and install** opens a terminal box
+inside the desktop. Licence questions are grouped by licence and name all
+applicable models; use **Yes** or **No**, without copying an acceptance phrase.
+Declined groups are skipped. Interrupted installation remains available to
+retry. The same choices are accessible through `kilix wizard` in a terminal;
+`kilix wizard --all` revisits answered pages and `kilix wizard finish` resumes
+the final batch. The host must provide the matching model wizard backend.
