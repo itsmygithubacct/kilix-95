@@ -59,8 +59,9 @@ class ModelWizard(wm.Window):
                 cb=lambda checked, key=row['id']: self.toggle(key, checked)))
             self.checks.append(checkbox)
             detail = f'Download {backend.size_text(row["download_bytes"])}; disk {backend.size_text(row["installed_bytes"])}'
-            if row['ram_bytes'] is not None:
-                detail += f'; RAM estimate {backend.size_text(row["ram_bytes"])} ({row["fit"]})'
+            memory = backend.memory_text(row)
+            if memory:
+                detail += f'; {memory}'
             self.add(W.Label(36, y + 17, detail))
         if len(page['models']) > self.ROWS:
             self.add(W.Button(18, 312, 120, 22, 'More models', cb=self.more))
