@@ -17,7 +17,7 @@ jobs:
       # (see the advisory `pairing` job below, which watches for exactly that).
       # Advance this to the coordinated Kilix release commit during every
       # release — RELEASING.md step 1 in the Plebian-OS repository.
-      KILIX_COMMIT: 65edc6422e50797f248cb0bc3926eed0b87af31c
+      KILIX_COMMIT: 1e21cfd8b9248ea4251a906c0ae71329abfae699
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Install test dependencies
