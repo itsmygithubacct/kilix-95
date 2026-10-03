@@ -754,6 +754,24 @@ class Shell:
                             *env_args, "--"]
                            + argv)
 
+    def open_device_settings(self, tool):
+        labels = {
+            "power": "Power", "bluetooth": "Bluetooth", "storage": "Disks",
+            "printers": "Printers", "audio": "Sound Devices",
+            "input-method": "Input Methods", "accessibility": "Accessibility",
+            "lock": "Lock Desktop",
+        }
+        if tool not in labels:
+            raise ValueError("Unknown desktop device control")
+        pleb = self._resolve_program("pleb")
+        if not pleb:
+            wm.msgbox(self.desk, labels[tool],
+                      "Desktop device controls require Pleb. Run pleb install.",
+                      icon="error")
+            return False
+        argv = [pleb, "lock"] if tool == "lock" else [pleb, "devices", tool]
+        return self._tab(argv, labels[tool])
+
     def open_x11_tab(self, argv, title, cwd=None, fill=False, size=None,
                      refit_windows=False):
         run = [os.path.join(KILIX_HOME, "kilix"), "run"]
