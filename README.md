@@ -25,6 +25,11 @@ Quit through Start -> Shut Down..., or press `Ctrl+Alt+Q`.
 Prepared for the coordinated Plebian-OS 0.2.2 candidate, upgrading from 0.2.1.
 Image, upgrade and final human acceptance remain pending.
 
+The RC5 desktop-completion candidate gives XPane applications their own
+singleton bus and uses the matching Kilix SDK's portal relay to reach physical
+desktop services. Portal request/session handles and Unix file descriptors
+cross that relay while the application's windows stay on its private display.
+
 - CI pairs this provider with the coordinated host's floating Start and status
   widget menus. The host's dropdowns appear above the desktop pane.
 - Settings exposes the page-strip edge. Desktop Amp and sibling TUI launches
