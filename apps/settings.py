@@ -61,6 +61,8 @@ BEHAVIOR = [
 ]
 TOP_BAR = [
     ("KILIX_CHROME_TEMPERATURE", "Thermal status", "bool", "0"),
+    (shared_settings.TEMPERATURE_UNIT_KEY, "Temperature units", "choice",
+     list(shared_settings.TEMPERATURE_UNIT_CHOICES)),
     ("KILIX_CHROME_VOLUME", "Volume", "bool", "1"),
     ("KILIX_CHROME_NETWORK", "Network / Wi-Fi", "bool", "1"),
     ("KILIX_CHROME_CALENDAR", "Calendar", "bool", "1"),
