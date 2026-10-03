@@ -90,6 +90,9 @@ def open(desk, name, arg=None):
     elif name == "winhelp":
         from . import winhelp
         desk.wm.add(winhelp.Help(desk, arg))
+    elif name == "helpsearch":
+        from . import helpsearch
+        desk.wm.add(helpsearch.HelpSearch(desk, arg))
     elif name == "manual":
         from . import manual
         desk.wm.add(manual.ManualBrowser(desk, arg))

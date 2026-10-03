@@ -688,6 +688,8 @@ class Taskbar:
                 sub(),
             ]
         help_sub += [
+            MI("Help Search", icon="help",
+               action=lambda: shell.open_app("helpsearch")),
             MI("System Manual", icon="help",
                action=lambda: shell.open_app("manual", "search")),
             MI("List", icon="doc_text",
