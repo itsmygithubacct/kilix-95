@@ -10,6 +10,7 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import threading
 import time
 import weakref
 
@@ -520,6 +521,9 @@ class Controller:
         self.desk, self.tree = desk, Tree(desk)
         self.last = None
         self.closed = False
+        self._geometry = None
+        self._geometry_stop = threading.Event()
+        self._geometry_thread = None
         parent, child = socket.socketpair()
         try:
             interpreter = '/usr/bin/python3' if Path('/usr/bin/python3').is_file() else sys.executable
@@ -537,7 +541,24 @@ class Controller:
         self.fd = parent.fileno()
         desk.add_fd(self.fd, self.read)
         desk.tick_hooks.append(self.tick)
+        if desk.term is not None and os.environ.get('KITTY_WINDOW_ID'):
+            self._geometry_thread = threading.Thread(target=self._observe_geometry, daemon=True)
+            self._geometry_thread.start()
         self.tick(time.time())
+
+    def _observe_geometry(self):
+        try:
+            from kilix_sdk import geometry
+        except ImportError:
+            return
+        while not self._geometry_stop.is_set():
+            try:
+                value, unused = geometry.current(timeout=.4)
+                self._geometry = (time.monotonic(), value)
+            except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+                self._geometry = None
+            if self._geometry_stop.wait(.25):
+                return
 
     def read(self):
         try:
@@ -574,6 +595,12 @@ class Controller:
         try:
             self.channel.flush()
             current = self.tree.build()
+            current['canvas_size'] = [self.desk.w, self.desk.h]
+            if self.desk.term is not None:
+                current['canvas_grid'] = [self.desk.term.cols, self.desk.term.rows]
+            value = self._geometry
+            if value is not None and time.monotonic() - value[0] < .8:
+                current['viewport'] = {'observed': value[0], 'geometry': value[1]}
             if current != self.last:
                 self.channel.queue(current)
                 self.last = current
@@ -584,6 +611,7 @@ class Controller:
         if self.closed:
             return
         self.closed = True
+        self._geometry_stop.set()
         self.desk.remove_fd(self.fd)
         if self.tick in self.desk.tick_hooks:
             self.desk.tick_hooks.remove(self.tick)

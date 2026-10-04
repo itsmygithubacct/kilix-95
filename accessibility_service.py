@@ -7,6 +7,7 @@ or coordinate-injected stand-ins implement these objects.
 import ctypes
 import itertools
 import locale
+import math
 import os
 import signal
 import socket
@@ -19,6 +20,14 @@ from gi.repository import Gio, GLib
 
 from accessibility_protocol import (CACHE, ROOT, NULL, PREFIX, Channel,
                                     MAX_NODES, ROLES, STATES, state_words, text_span)
+
+import host
+host.add_kilix_config_path()
+try:
+    from kilix_sdk.geometry import PaneGeometry, GeometryUnavailable
+except ImportError:
+    PaneGeometry = None
+    GeometryUnavailable = ValueError
 
 # Protocol metadata, independently stated from the upstream AT-SPI XML API.
 METHODS = {
@@ -107,6 +116,9 @@ class Service:
         self.application_id = 0
         self.registry_parent = ('', NULL)
         self.embedded = False
+        self.viewport = None
+        self.viewport_observed = 0
+        self.canvas_size = self.canvas_grid = None
         self.loop = GLib.MainLoop()
         # Pleb's original physical session bus is preserved for private apps.
         env_address = os.environ.get('PLEB_DESKTOP_SESSION_BUS_ADDRESS')
@@ -168,6 +180,24 @@ class Service:
                              (detail, a, b, value or GLib.Variant('i', 0), {})))
 
     def update(self, snapshot):
+        prior_bounds = {}
+        for key, node in self.nodes.items():
+            try:
+                prior_bounds[key] = self.screen_rect(node['rect'])
+            except (ValueError, NotImplementedError):
+                pass
+        self.viewport = None
+        self.canvas_size = snapshot.get('canvas_size')
+        self.canvas_grid = snapshot.get('canvas_grid')
+        viewport = snapshot.get('viewport')
+        if PaneGeometry is not None and isinstance(viewport, dict):
+            observed = viewport.get('observed')
+            if type(observed) in (int, float) and math.isfinite(observed):
+                try:
+                    self.viewport = PaneGeometry.parse(viewport.get('geometry'))
+                    self.viewport_observed = observed
+                except GeometryUnavailable:
+                    pass
         records = snapshot['nodes']
         if len(records) > MAX_NODES:
             raise ValueError('too many accessibility objects')
@@ -209,6 +239,12 @@ class Service:
                 self.bus.emit_signal(None, CACHE, PREFIX + 'Cache', 'AddAccessible',
                                      GLib.Variant('(((so)(so)(so)iiassusau))', (self.cache_item(node),)))
             if old is not None:
+                try:
+                    bounds = self.screen_rect(node['rect'])
+                    if prior_bounds.get(key) != bounds:
+                        self.event(node, 'BoundsChanged', value=GLib.Variant('(iiii)', bounds))
+                except (ValueError, NotImplementedError):
+                    pass
                 if old['name'] != node['name']:
                     self.event(node, 'PropertyChange', 'accessible-name', value=GLib.Variant('s', node['name']))
                 if old['children'] != node['children']:
@@ -287,6 +323,24 @@ class Service:
         self.pending[serial] = (invocation, output, timer)
         self.channel.queue({'type': 'request', 'request': serial, 'node': node['id'],
                             'kind': kind, 'args': list(args), 'deadline': time.monotonic() + 0.9})
+
+    def screen_rect(self, rect):
+        age = time.monotonic() - self.viewport_observed
+        if self.viewport is None or not 0 <= age < .8:
+            raise NotImplementedError()
+        try:
+            return self.viewport.screen_rect(rect, self.canvas_size, self.canvas_grid)
+        except GeometryUnavailable:
+            raise NotImplementedError() from None
+
+    def screen_point(self, x, y):
+        age = time.monotonic() - self.viewport_observed
+        if self.viewport is None or not 0 <= age < .8:
+            raise NotImplementedError()
+        try:
+            return self.viewport.canvas_point(x, y, self.canvas_size, self.canvas_grid)
+        except GeometryUnavailable:
+            raise NotImplementedError() from None
 
     def expire(self, serial):
         item = self.pending.pop(serial, None)
@@ -390,28 +444,37 @@ class Service:
             if method.startswith('Set') or method.startswith('Scroll'):
                 return (False,)
             coordinate = args[-1]
-            # A terminal pane's screen origin must come from the native host.
-            # Until that contract exists, reject screen extents instead of
-            # reporting canvas coordinates as physical desktop coordinates.
+            if coordinate not in (0, 1, 2):
+                raise ValueError()
+            # Only the live native frontend establishes a screen placement.
             if coordinate == 0:
-                raise NotImplementedError()
-            r = list(node['rect'])
-            origin = self.nodes.get(node['parent']) if coordinate == 2 else self.nodes['desktop']
-            if origin:
-                r[0] -= origin['rect'][0]
-                r[1] -= origin['rect'][1]
+                r = self.screen_rect(node['rect'])
+                if method == 'GetExtents':
+                    return (r,)
+                if method == 'GetPosition':
+                    return tuple(r[:2])
+                px, py = self.screen_point(args[0], args[1])
+                origin = None
+                r = list(node['rect'])
+            else:
+                px, py = args[:2] if len(args) >= 3 else (0, 0)
+                r = list(node['rect'])
+                origin = self.nodes.get(node['parent']) if coordinate == 2 else self.nodes['desktop']
+                if origin:
+                    r[0] -= origin['rect'][0]
+                    r[1] -= origin['rect'][1]
             if method == 'GetExtents':
                 return (tuple(r),)
             if method == 'GetPosition':
                 return tuple(r[:2])
-            contains = r[0] <= args[0] < r[0] + r[2] and r[1] <= args[1] < r[1] + r[3]
+            contains = r[0] <= px < r[0] + r[2] and r[1] <= py < r[1] + r[3]
             if method == 'Contains':
                 return (contains,)
             if method == 'GetAccessibleAtPoint':
                 if not contains:
                     return (('', NULL),)
-                gx = args[0] + (origin['rect'][0] if origin else 0)
-                gy = args[1] + (origin['rect'][1] if origin else 0)
+                gx = px + (origin['rect'][0] if origin else 0)
+                gy = py + (origin['rect'][1] if origin else 0)
                 def deepest(current):
                     for child in reversed(current['children']):
                         candidate = self.nodes[child]

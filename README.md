@@ -46,8 +46,11 @@ Stop sharing stay on the physical desktop.
   controls; closed or replaced items are refused, modal dialogs restrict
   underlying actions, and password text crosses the bridge only as bullets.
   The owned GIO helper exits with its desktop. Tab strips and dropdowns also
-  support keyboard navigation and show focus. Physical screen-coordinate
-  mapping, native Kilix chrome semantics, broader keyboard/input workflows
+  support keyboard navigation and show focus. The matching native candidate
+  supplies pane geometry through a bounded background observer. Component
+  screen bounds and hit-testing use that live X11 placement and refuse expired,
+  hidden or mismatched grids. Installed physical-coordinate qualification,
+  text hit-testing, native Kilix chrome semantics, broader keyboard/input workflows
   and complete installed screen-reader acceptance remain pending. Owned VM
   checks cover live icon/document/menu/dialog actions, saving edited Unicode
   text, and Orca speaking icons, menus and a real editor line. List-selection
