@@ -55,6 +55,19 @@ for cls in ('area', 'field'):
         # The last visible pixel of overhanging ink still hits the character.
         assert TextGeometry(widget, (0, 0)).offset_at(vx + ink[2] - 1, vy + ink[1]) == 0
 
+    # Full-string rendering preserves fractional prefix advances. An isolated
+    # glyph test alone misses the one-pixel overhang after preceding text.
+    text = 'W   é   日'
+    widget = W.TextArea(5, 5, 130, 40, text) if cls == 'area' else W.TextField(5, 5, 130, text)
+    image = Image.new('RGB', (180, 80), T.WINDOW_BG)
+    widget.draw(W.drawer(image), image)
+    geometry = TextGeometry(widget, (0, 0))
+    for offset in (0, 4, 8):
+        x, y, rw, rh = geometry.character(offset)
+        crop = image.crop((x-1, y, x+rw+2, y+rh))
+        ink = ImageChops.difference(crop, Image.new('RGB', crop.size, T.WINDOW_BG)).getbbox()
+        assert ink is not None and 1 <= ink[0] and ink[2] <= rw+1, (cls, offset, ink, rw)
+
 # Scrolling changes layout positions, not the Unicode document offsets.
 ta.sb.pos = 1; ta.hx = 10
 scrolled = TextGeometry(ta, origin)

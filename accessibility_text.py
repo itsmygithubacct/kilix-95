@@ -43,8 +43,13 @@ class TextGeometry:
             # A glyph can overhang its advance (including a missing-glyph box).
             # Keep the logical cell while enclosing the same font's drawn ink.
             ink_left, _, ink_right, _ = self.font.getbbox(line[start:end])
-            right = max(right, left + ink_right)
-            left += min(0, ink_left)
+            # PIL keeps fractional advances while rendering the whole string.
+            # Prefix integer widths alone can miss its final rasterized pixel.
+            advance = self.font.getlength if hasattr(self.font, 'getlength') else lambda s: T.text_w(self.font, s)
+            prefix = advance(line[:start])
+            contextual = advance(line[:end]) - advance(line[start:end])
+            right = max(right, math.ceil(max(prefix, contextual) + ink_right))
+            left = min(left, math.floor(min(prefix, contextual) + ink_left))
         return [self.origin[0] + x + left, self.origin[1] + y,
                 max(0, right - left), self.height]
 
