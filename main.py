@@ -235,6 +235,8 @@ class Desk:
         self.img_id = 1 + ((int(wid) if wid.isdigit() else os.getpid())
                            % 4000)
         self.seq = 0
+        self._last_blit = 0.0
+        self._last_full_blit = 0.0
         self._frame_dir = None
         self._frame_dir_fd = None       # lifetime flock identifies a live owner
         # WM/loop polish state
@@ -768,6 +770,7 @@ class Desk:
             kilix_graphics.blit_direct(
                 self.term, rgb, self.w, self.h, self.term.cols,
                 self.term.rows, self.img_id, in_tmux=in_tmux)
+            self._last_full_blit = self._last_blit
             return
         # kitty may still be opening a previously announced t=t path after a
         # later frame is ready.  Never recycle a filename: truncating a path
@@ -785,6 +788,14 @@ class Desk:
             f"\x1b[H\x1b_Ga=T,i={self.img_id},p=1,z=-1,t=t,f=24,"
             f"s={self.w},v={self.h},c={self.term.cols},r={self.term.rows},"
             f"q=2,C=1,N=1;{payload}\x1b\\")
+        self._last_full_blit = self._last_blit
+
+    def _keepalive(self, now, started):
+        # Band edits need an existing image. Their activity must not postpone
+        # full placements forever after a frontend loses its graphics state.
+        if ((now - started < 5 and now - self._last_blit >= 0.5)
+                or now - self._last_full_blit >= 10):
+            self.blit(force_full=True)
 
     def _frame_path(self, kind, sequence):
         if self._frame_dir is None:
@@ -1243,6 +1254,7 @@ class Desk:
         self._first_run_password_nag()    # …and pop the change-password bubble
         last_blink = time.time()
         self._last_blit = 0.0
+        self._last_full_blit = 0.0
         start = time.time()
         try:
             self.render()
@@ -1307,9 +1319,7 @@ class Desk:
                 # right after startup and clear placements), and rendering is
                 # otherwise damage-driven — so repeat the frame aggressively
                 # for the first seconds and slowly forever after
-                age = now - self._last_blit
-                if age >= 0.5 and now - start < 5 or age >= 10:
-                    self.blit(force_full=True)   # heal dropped placements
+                self._keepalive(now, start)
                 self.render()
         except KeyboardInterrupt:
             pass

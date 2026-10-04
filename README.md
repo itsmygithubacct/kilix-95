@@ -36,6 +36,8 @@ cross that relay while the application's windows stay on its private display.
   carry the selected content installation root.
 - Desktop and file-manager icons support arrow keys, Home/End, Shift selection
   ranges and Enter activation. File-manager navigation reveals offscreen rows.
+- Full graphics placements recur even while damage updates are active, so a
+  recovered frontend can rebuild the desktop image without a manual resize.
 
 ## Release 0.2.0
 
