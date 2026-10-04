@@ -29,6 +29,10 @@ The RC5 desktop-completion candidate gives XPane applications their own
 singleton bus and uses the matching Kilix SDK's portal relay to reach physical
 desktop services. Portal request/session handles and Unix file descriptors
 cross that relay while the application's windows stay on its private display.
+With the matching Kilix/Pleb candidates, each local XPane is offered separately
+in the physical capture picker, under its desktop application title. Capture
+includes that pane's private application windows and dialogs; consent and
+Stop sharing stay on the physical desktop.
 
 - CI pairs this provider with the coordinated host's floating Start and status
   widget menus. The host's dropdowns appear above the desktop pane.
