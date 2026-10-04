@@ -93,10 +93,12 @@ class Tree:
         if win is self.desk.shell:
             if self.desk.wm.modal_top() is not None:
                 return False
+            self.desk.menus.close_all()
             self.desk.wm.active = None
         elif not self.allowed_window(win):
             return False
         else:
+            self.desk.menus.close_all()
             self.desk.wm.activate(win)
             win.set_focus(widget)
         self.desk.dirty = True

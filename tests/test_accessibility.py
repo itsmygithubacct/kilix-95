@@ -45,6 +45,24 @@ assert tree.apply(text['id'], 'delete_text', [5, 8])
 assert np.ta.text() == 'café \nsecond line'
 assert not tree.apply(text['id'], 'selection', [100, 101])
 
+# Home/End stay on the current line; Ctrl and Shift use document boundaries.
+np.ta.set_text('first\nsecond\nlast')
+np.ta._move(1, 3, False)
+assert np.ta.on_key(H.ev('key', key='Home'))
+assert (np.ta.cr, np.ta.cc) == (1, 0)
+assert np.ta.on_key(H.ev('key', key='Home', ctrl=True))
+assert (np.ta.cr, np.ta.cc) == (0, 0)
+assert np.ta.on_key(H.ev('key', key='End', ctrl=True))
+assert (np.ta.cr, np.ta.cc) == (2, 4)
+assert np.ta.on_key(H.ev('key', key='Home', ctrl=True, shift=True))
+assert np.ta._sel() == ((0, 0), (2, 4))
+
+# GrabFocus must actually transfer focus out of an open popup.
+d.menus.open([W.MenuItem('Popup command', action=lambda: None)], 20, 20)
+assert d.menus.active
+assert tree.apply(text['id'], 'focus', [])
+assert not d.menus.active and np.focus is np.ta
+
 # A modal dialog blocks underlying text, taskbar and window actions.
 answers = []
 box = wm.msgbox(d, 'Confirm', 'Proceed?', buttons=('Yes', 'No'), cb=answers.append)

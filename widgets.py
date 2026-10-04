@@ -702,9 +702,10 @@ class TextArea(Widget):
             step = -rows if k == "PageUp" else rows
             self._move(self.cr + step, self.goal_col, ev.shift)
         elif k == "Home":
-            self._move(self.cr, 0, ev.shift)
+            self._move(0 if ev.ctrl else self.cr, 0, ev.shift)
         elif k == "End":
-            self._move(self.cr, len(self.lines[self.cr]), ev.shift)
+            row = len(self.lines) - 1 if ev.ctrl else self.cr
+            self._move(row, len(self.lines[row]), ev.shift)
         elif ev.ctrl and k == "a":
             self.anchor = (0, 0)
             self.cr = len(self.lines) - 1

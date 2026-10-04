@@ -53,6 +53,9 @@ Stop sharing stay on the physical desktop.
   text, and Orca speaking icons, menus and a real editor line. List-selection
   requests carry the selected item's identity so a refresh cannot redirect
   a pending index-based request to a replacement file.
+- The text editor supports Ctrl+Home/End for document boundaries, including
+  Shift selection. Accessible focus dismisses open popup menus before moving
+  to a desktop icon or window control.
 - Full graphics placements recur even while damage updates are active, so a
   recovered frontend can rebuild the desktop image without a manual resize.
 - With the matching host candidate, a surviving broker-backed desktop refreshes
