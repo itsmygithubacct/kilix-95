@@ -38,6 +38,8 @@ cross that relay while the application's windows stay on its private display.
   ranges and Enter activation. File-manager navigation reveals offscreen rows.
 - Full graphics placements recur even while damage updates are active, so a
   recovered frontend can rebuild the desktop image without a manual resize.
+- With the matching host candidate, a surviving broker-backed desktop refreshes
+  its authenticated route from the live attach process before launching tabs.
 
 ## Release 0.2.0
 

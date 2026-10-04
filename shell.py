@@ -17,6 +17,10 @@ import subprocess
 
 from PIL import Image
 from kilix_sdk import content as kilix_content
+try:
+    from kilix_sdk import frontend_context
+except ImportError:                  # older hosts retain their existing route
+    frontend_context = None
 
 import icons
 import durable_state
@@ -684,6 +688,8 @@ class Shell:
         return None
 
     def _kitten_remote(self, kitten, command):
+        if frontend_context is not None:
+            frontend_context.refresh()
         argv = [kitten, "@"]
         password_file = os.environ.get("KILIX_RC_PASSWORD_FILE")
         if password_file:
