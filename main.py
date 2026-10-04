@@ -205,6 +205,7 @@ class Desk:
         self.term = term
         self.frontend_focused = term is None
         self.accessibility = None
+        self.directory_monitor = None
         if term:
             self.w = int(term.cols * term.cell_w)
             self.h = int(term.rows * term.cell_h)
@@ -1209,11 +1210,16 @@ class Desk:
         finally:
             try:
                 try:
-                    accessibility, self.accessibility = self.accessibility, None
-                    if accessibility is not None:
-                        accessibility.close()
+                    monitor, self.directory_monitor = getattr(self, 'directory_monitor', None), None
+                    if monitor is not None:
+                        monitor.close()
                 finally:
-                    self.cleanup_shm()
+                    try:
+                        accessibility, self.accessibility = self.accessibility, None
+                        if accessibility is not None:
+                            accessibility.close()
+                    finally:
+                        self.cleanup_shm()
             finally:
                 bridge, self.clip_host = self.clip_host, None
                 if bridge is not None:
@@ -1227,6 +1233,8 @@ class Desk:
             signal.signal(s, lambda *a: sys.exit(0))
         os.set_blocking(term.fd, False)
         term.enter()
+        from directory_monitor import DirectoryMonitor
+        self.directory_monitor = DirectoryMonitor(self)
         # one clipboard across tabs/panes/windows: bridge the host X CLIPBOARD
         # (where the terminal and its tabs live) into the hub. Best-effort — with
         # no reachable host X (remote/nested share) OSC 52 stays the fallback.

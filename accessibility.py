@@ -204,7 +204,7 @@ class Tree:
             if enabled:
                 actions['toggle'] = lambda: self._checkbox(widget)
         elif isinstance(widget, W.Label):
-            role = 'label'
+            role = 'status bar' if getattr(widget, 'is_status', False) else 'label'
         elif isinstance(widget, W.GroupBox):
             role, name = 'panel', widget.label
         elif isinstance(widget, (W.TextField, W.TextArea)):
@@ -316,8 +316,7 @@ class Tree:
     def _item_activate(self, widget, index):
         if not self._item_focus(widget, index):
             return False
-        widget.on_activate(widget.items[index])
-        return True
+        return widget.on_activate(widget.items[index]) is not False
 
     def select(self, widget, kind, args):
         index = args[0] if args else None

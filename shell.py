@@ -23,6 +23,7 @@ except ImportError:                  # older hosts retain their existing route
     frontend_context = None
 
 import icons
+import directory_listing
 import durable_state
 import nostalgia
 import recycle
@@ -187,7 +188,7 @@ class Shell:
         return True
 
     # ── the icons ───────────────────────────────────────────────────────────
-    def refresh(self):
+    def refresh(self, listing=None):
         bin_full = bool(recycle.items())
         items = [
             {"label": "My Computer", "icon": "computer",
@@ -216,25 +217,21 @@ class Shell:
                 {"label": "Mux Terminal", "icon": "mux",
                  "data": ("builtin", ("mux", None))},
             ]
-        try:
-            names = sorted(os.listdir(self.dir), key=str.lower)
-        except OSError:
-            names = []
-        for n in names:
+        listing = listing if listing is not None else directory_listing.scan(self.dir)
+        for entry in sorted(listing.entries, key=lambda e: e.name.lower()):
+            n, p = entry.name, entry.path
             if n.startswith("."):
                 continue
-            p = os.path.join(self.dir, n)
-            if n.endswith(".desktop"):
-                spec = parse_launcher(p)
-                items.append({"label": spec.get("Name") or n[:-8],
+            if entry.launcher is not None:
+                spec = entry.launcher
+                items.append(entry.tag({"label": spec.get("Name") or n[:-8],
                               "icon": spec.get("Icon") or "exe",
-                              "shortcut": True, "data": ("launcher", p)})
+                              "shortcut": True, "data": ("launcher", p)}))
             else:
-                isdir = os.path.isdir(p)
-                items.append({"label": n,
-                              "icon": icons.for_path(p, isdir),
-                              "data": ("path", p)})
-        self.grid.set_items(items)
+                items.append(entry.tag({"label": n,
+                              "icon": icons.for_path(p, entry.isdir),
+                              "data": ("path", p)}))
+        self.grid.set_items(items, preserve=True)
         self.invalidate()
 
     def dir_changed(self, path):
@@ -313,6 +310,9 @@ class Shell:
 
     # ── activation / context menus ──────────────────────────────────────────
     def _activate(self, item):
+        if not directory_listing.current(item):
+            self.refresh()
+            return False
         kind, arg = item["data"]
         if kind == "builtin":
             app, param = arg
@@ -1811,16 +1811,7 @@ class Shell:
 # ── launcher file helpers ────────────────────────────────────────────────────
 
 def parse_launcher(path):
-    cp = configparser.ConfigParser(interpolation=None)
-    cp.optionxform = str
-    out = {}
-    try:
-        cp.read(path)
-        if cp.has_section("Desktop Entry"):
-            out = dict(cp["Desktop Entry"])
-    except (OSError, ValueError, configparser.Error):  # ValueError: bad UTF-8
-        pass
-    return out
+    return directory_listing.parse_launcher(path)
 
 
 def write_launcher(path, spec):

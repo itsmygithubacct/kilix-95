@@ -11,6 +11,7 @@ import stat
 import time
 
 import icons
+import directory_listing
 import recycle
 import shell as _shell
 import theme as T
@@ -32,6 +33,7 @@ class FileWindow(wm.Window):
         self.min_w, self.min_h = 340, 220
         self.hist, self.hist_i = [], -1
         self.show_hidden = False
+        self.listing_error = None
         cw, ch = self.client_size()
         self.menubar = self.add(W.MenuBar(cw, [
             ("File", self._file_menu), ("Edit", self._edit_menu),
@@ -51,6 +53,8 @@ class FileWindow(wm.Window):
                                        on_activate=self._activate,
                                        on_context=self._context,
                                        on_drop=self._drop))
+        self.status_label = self.add(W.Label(8, ch - STATUS_H + 3, ''))
+        self.status_label.is_status = True
         self.set_focus(self.grid)
         self.navigate(os.path.expanduser(path))
 
@@ -60,6 +64,7 @@ class FileWindow(wm.Window):
         self.menubar.w = cw
         self.addr.w = cw - self.addr.x - 8
         self.grid.w, self.grid.h = cw - 4, ch - TB_Y - TB_H - STATUS_H - 4
+        self.status_label.y = ch - STATUS_H + 3
 
     def draw_client(self, d, img):
         cw, ch = self.client_size()
@@ -67,48 +72,55 @@ class FileWindow(wm.Window):
         n = len(self.grid.items)
         sel = len(self.grid.sel)
         msg = f"{n} object(s)" + (f"   ({sel} selected)" if sel else "")
+        if self.listing_error is not None:
+            msg = 'Folder unavailable'
         T.sunken(d, 2, ch - STATUS_H, cw - 3, ch - 3, fill=T.FACE)
-        d.text((8, ch - STATUS_H + 3), msg, font=T.FONT, fill=T.TEXT)
+        if self.status_label.text != msg:
+            self.status_label.set(msg)
 
     # ── navigation ──────────────────────────────────────────────────────────
-    def navigate(self, path, from_hist=False):
+    def navigate(self, path, from_hist=False, preserve=False, listing=None):
         path = os.path.abspath(os.path.expanduser(path or "/"))
-        try:
-            names = os.listdir(path)
-        except OSError as e:
-            wm.msgbox(self.desk, "File Manager", str(e), icon="error")
+        listing = listing if listing is not None else directory_listing.scan(path)
+        if listing.error is not None and not preserve:
+            wm.msgbox(self.desk, "File Manager", os.strerror(listing.error), icon="error")
             return False
         if not from_hist:
             self.hist = self.hist[:self.hist_i + 1] + [path]
             self.hist_i = len(self.hist) - 1
         self.path = path
-        self.addr.set(path)
+        if not preserve:
+            self.addr.set(path)
         self.title = os.path.basename(path) or path
-        if not self.show_hidden:
-            names = [n for n in names if not n.startswith(".")]
-        key = lambda n: (not os.path.isdir(os.path.join(path, n)), n.lower())
+        self.listing_error = listing.error
         items = []
-        for n in sorted(names, key=key):
-            p = os.path.join(path, n)
-            isdir = os.path.isdir(p)
+        for entry in sorted(listing.entries, key=lambda e: (not e.isdir, e.name.lower())):
+            n, p, isdir = entry.name, entry.path, entry.isdir
+            if not self.show_hidden and n.startswith('.'):
+                continue
             label, icon, shortcut = n, icons.for_path(p, isdir), False
-            if n.endswith(".desktop") and not isdir:
-                spec = _shell.parse_launcher(p)
+            if entry.launcher is not None:
+                spec = entry.launcher
                 if spec.get("Name"):
                     label = spec["Name"]
                 icon, shortcut = spec.get("Icon") or "exe", True
-            items.append({"label": label, "icon": icon, "shortcut": shortcut,
-                          "data": p, "isdir": isdir})
-        self.grid.set_items(items)
-        self.grid.sb.pos = 0
+            items.append(entry.tag({"label": label, "icon": icon, "shortcut": shortcut,
+                          "data": p, "isdir": isdir}))
+        self.grid.set_items(items, preserve=preserve)
+        if preserve:
+            self.grid.sb.total = self.grid._rows_total()
+            self.grid.sb.page = max(1, (self.grid.h - 8) // T.CELL_H)
+            self.grid.sb.clamp()
+        else:
+            self.grid.sb.pos = 0
         self.b_back.enabled = self.hist_i > 0
         self.b_fwd.enabled = self.hist_i < len(self.hist) - 1
         self.b_up.enabled = path != "/"
         self.invalidate()
         return True
 
-    def refresh(self):
-        self.navigate(self.path, from_hist=True)
+    def refresh(self, listing=None):
+        self.navigate(self.path, from_hist=True, preserve=True, listing=listing)
 
     def _go(self, step):
         i = self.hist_i + step
@@ -128,6 +140,9 @@ class FileWindow(wm.Window):
         self.set_focus(self.grid)
 
     def _activate(self, item):
+        if not directory_listing.current(item):
+            self.refresh()
+            return False
         if item["isdir"]:
             self.navigate(item["data"])
         else:

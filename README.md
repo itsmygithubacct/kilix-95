@@ -40,6 +40,13 @@ Stop sharing stay on the physical desktop.
   carry the selected content installation root.
 - Desktop and file-manager icons support arrow keys, Home/End, Shift selection
   ranges and Enter activation. File-manager navigation reveals offscreen rows.
+- Desktop and open file-manager views follow external file creation, removal,
+  renaming and launcher edits. Filesystem scans run off the UI thread; unchanged
+  items retain their accessible identities, selection and keyboard anchors.
+  Refresh preserves address drafts and scroll position, defers through menus
+  and drags, and refuses activation of a replaced file. Missing folders show an
+  accessible status and recover when recreated. Linux directory notifications
+  are backed by periodic consistency scans; owned monitors close with the desktop.
 - The candidate exposes the live pixel shell through AT-SPI: desktop icons,
   windows, taskbar actions, menus, buttons, checkboxes, text editors, lists,
   tab strips and dropdowns. Requests run on the UI thread against current

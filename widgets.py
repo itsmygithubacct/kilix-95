@@ -902,10 +902,29 @@ class IconGrid(Widget):
         self.label_fg = T.LIGHT if desktop else T.TEXT
         self.bg = None if desktop else T.WINDOW_BG
 
-    def set_items(self, items):
+    def set_items(self, items, preserve=False):
+        old = self.items
+        if preserve:
+            def key(item):
+                return item.get('_entry_key', ('builtin', repr(item.get('data'))))
+            selected = {key(old[i]) for i in self.sel if 0 <= i < len(old)}
+            keyboard = key(old[self._keyboard_item]) if self._keyboard_item is not None and 0 <= self._keyboard_item < len(old) else None
+            anchor = key(old[self._selection_anchor]) if self._selection_anchor is not None and 0 <= self._selection_anchor < len(old) else None
+            _, columns = self._grid()
+            top_index = self.sb.pos * columns if columns else len(old)
+            top = key(old[top_index]) if top_index < len(old) else None
+            previous = {key(item): item for item in old}
+            items = [previous[key(item)] if key(item) in previous and previous[key(item)] == item else item for item in items]
+            indices = {key(item): i for i, item in enumerate(items)}
+            self.sel = {indices[k] for k in selected if k in indices}
+            self._keyboard_item = indices.get(keyboard)
+            self._selection_anchor = indices.get(anchor)
+            if columns and top in indices:
+                self.sb.pos = indices[top] // columns
+        else:
+            self.sel.clear()
+            self._keyboard_item = self._selection_anchor = None
         self.items = items
-        self.sel.clear()
-        self._keyboard_item = self._selection_anchor = None
         self.invalidate()
 
     # layout
