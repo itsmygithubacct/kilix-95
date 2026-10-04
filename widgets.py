@@ -312,6 +312,12 @@ class TextField(Widget):
         with the real text's indices; only glyphs and pixel widths differ."""
         return ("•" * len(self.text)) if self.mask else self.text
 
+    def text_origin(self):
+        return self.x + 4 - self.scroll, self.y + 2 + (self.h - 4 - 13) // 2
+
+    def text_viewport(self):
+        return self.x + 2, self.y + 2, self.w - 4, self.h - 4
+
     # selection helpers
     def _sel(self):
         if self.anchor is None or self.anchor == self.cur:
@@ -360,11 +366,12 @@ class TextField(Widget):
         T.sunken(d, x0, y0, x1, y1, fill=bg)
         # render into an interior-sized strip so scrolled text can't bleed
         # past the box onto neighbouring widgets
-        iw, ih = self.w - 4, self.h - 4
-        ty = (ih - 13) // 2
+        vx, vy, iw, ih = self.text_viewport()
+        tx, text_y = self.text_origin()
+        ty = text_y - vy
         strip = Image.new("RGB", (iw, ih), bg)
         sd = drawer(strip)
-        ox = 2 - self.scroll                      # x of text[0] within strip
+        ox = tx - vx                              # x of text[0] within strip
         s = self._sel()
         focused = self.window and self.window.focus is self
         disp = self._disp()
@@ -377,7 +384,7 @@ class TextField(Widget):
         if s and focused:
             sd.text((ox + T.text_w(T.FONT, disp[:s[0]]), ty),
                     disp[s[0]:s[1]], font=T.FONT, fill=T.SEL_TX)
-        img.paste(strip, (x0 + 2, y0 + 2))
+        img.paste(strip, (vx, vy))
         if focused and self.window.caret_on:
             cx = x0 + self._x_of(self.cur)
             if x0 + 2 <= cx <= x1 - 2:
@@ -498,6 +505,12 @@ class TextArea(Widget):
     def _rows(self):
         return max(1, (self.h - 4) // self.LH)
 
+    def text_origin(self, row=0):
+        return self.x + 4 - self.hx, self.y + 2 + (row - self.sb.pos) * self.LH
+
+    def text_viewport(self):
+        return self.x + 4, self.y + 2, self.w - T.SCROLL_W - 10, self._rows() * self.LH
+
     def _col_at(self, row, px):
         s = self.lines[row]
         for i in range(len(s) + 1):
@@ -558,14 +571,14 @@ class TextArea(Widget):
         self.sb.place(x1 - T.SCROLL_W + 1 - 2, y0 + 2, self.h - 4)
         sel = self._sel()
         focused = self.window and self.window.focus is self
-        tx = x0 + 4
-        maxw = self.w - T.SCROLL_W - 10
+        tx, _, maxw, _ = self.text_viewport()
         W = T.text_w
         for i in range(self._rows()):
             row = self.sb.pos + i
             if row >= len(self.lines):
                 break
-            yy = y0 + 3 + i * self.LH
+            _, line_y = self.text_origin(row)
+            yy = line_y + 1
             s = self.lines[row]
             a, b = self._span(s, maxw)            # visible pixel window slice
             sel_row = None

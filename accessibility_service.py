@@ -314,13 +314,13 @@ class Service:
             return True
         return False
 
-    def request(self, invocation, node, kind, args=(), output='b'):
+    def request(self, invocation, node, kind, args=(), output='b', convert=None):
         if len(self.pending) >= 64:
             invocation.return_dbus_error('org.freedesktop.DBus.Error.LimitsExceeded', 'Too many pending accessibility actions')
             return
         serial = next(self.counter)
         timer = GLib.timeout_add(1000, self.expire, serial)
-        self.pending[serial] = (invocation, output, timer)
+        self.pending[serial] = (invocation, output, timer, convert)
         self.channel.queue({'type': 'request', 'request': serial, 'node': node['id'],
                             'kind': kind, 'args': list(args), 'deadline': time.monotonic() + 0.9})
 
@@ -349,8 +349,17 @@ class Service:
         return False
 
     @staticmethod
-    def reply(item, accepted):
-        invocation, output, timer = item
+    def reply(item, accepted, value=None):
+        invocation, output, timer, convert = item
+        if convert is not None:
+            try:
+                if not accepted:
+                    raise NotImplementedError()
+                result = convert(value)
+                invocation.return_value(GLib.Variant('(' + output + ')', result))
+            except (NotImplementedError, ValueError, TypeError, KeyError, OverflowError):
+                invocation.return_dbus_error('org.freedesktop.DBus.Error.NotSupported', 'Live text geometry is unavailable')
+            return
         if not output and not accepted:
             invocation.return_dbus_error('org.freedesktop.DBus.Error.Failed', 'Accessibility action was refused')
         else:
@@ -365,11 +374,70 @@ class Service:
                     item = self.pending.pop(message['request'], None)
                     if item:
                         GLib.source_remove(item[2])
-                        self.reply(item, message.get('accepted') is True)
+                        self.reply(item, message.get('accepted') is True, message.get('value'))
         except (EOFError, OSError, ValueError, KeyError):
             self.loop.quit()
             return False
         return True
+
+    def text_geometry(self, method, node, args, invocation):
+        coordinate = args[-1]
+        if coordinate not in (0, 1, 2):
+            raise ValueError()
+        key = node['id']
+        kind = {'GetCharacterExtents': 'character_rect', 'GetRangeExtents': 'range_rect',
+                'GetOffsetAtPoint': 'offset_at_point'}[method]
+        query_args = args[:-1]
+        origin = self.nodes.get(node['parent']) if coordinate == 2 else self.nodes['desktop']
+        origin_rect = tuple(origin['rect']) if origin else None
+        native = self.viewport if coordinate == 0 else None
+        if coordinate == 0:
+            self.screen_rect(node['rect'])  # Refuse unsupported/expired placements immediately.
+        if kind == 'offset_at_point':
+            if coordinate == 0:
+                query_args = self.screen_point(*query_args)
+            elif origin:
+                query_args = (query_args[0] + origin['rect'][0], query_args[1] + origin['rect'][1])
+        else:
+            if any(type(n) is not int or not 0 <= n <= len(node['text']) for n in query_args):
+                raise ValueError()
+            if kind == 'range_rect' and query_args[1] < query_args[0]:
+                raise ValueError()
+
+        def convert(value):
+            current = self.nodes.get(key)
+            if (not isinstance(value, dict) or current is None or 'showing' not in current['states']
+                    or value.get('node_rect') != current['rect']
+                    or value.get('text_view') != current.get('text_view')
+                    or value.get('canvas_size') != self.canvas_size
+                    or value.get('canvas_grid') != self.canvas_grid):
+                raise NotImplementedError()
+            if coordinate == 0 and native != self.viewport:
+                raise NotImplementedError()
+            result = value['value']
+            if kind == 'offset_at_point':
+                if coordinate == 2:
+                    current_origin = self.nodes.get(current['parent'])
+                    if (tuple(current_origin['rect']) if current_origin else None) != origin_rect:
+                        raise NotImplementedError()
+                if type(result) is not int or not -1 <= result <= len(current['text']):
+                    raise ValueError()
+                if coordinate == 0:
+                    self.screen_rect(current['rect'])  # The request can expire while waiting for the UI.
+                return (result,)
+            if (not isinstance(result, (list, tuple)) or len(result) != 4
+                    or any(type(n) is not int or abs(n) > 10000000 for n in result)
+                    or result[2] < 0 or result[3] < 0):
+                raise ValueError()
+            if coordinate == 0:
+                return self.screen_rect(result)
+            current_origin = self.nodes.get(current['parent']) if coordinate == 2 else self.nodes['desktop']
+            x, y, width, height = result
+            return (x - (current_origin['rect'][0] if current_origin else 0),
+                    y - (current_origin['rect'][1] if current_origin else 0), width, height)
+
+        self.request(invocation, node, kind, query_args,
+                     'i' if kind == 'offset_at_point' else 'iiii', convert)
 
     def flush(self):
         try:
@@ -485,6 +553,9 @@ class Service:
                 return (self.ref(deepest(node)),)
         if name == 'Text':
             text = node['text']
+            if method in ('GetCharacterExtents', 'GetRangeExtents', 'GetOffsetAtPoint'):
+                self.text_geometry(method, node, args, invocation)
+                return None
             if method == 'GetText':
                 start, end = args
                 end = len(text) if end == -1 else end

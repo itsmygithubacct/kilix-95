@@ -4,6 +4,7 @@ Snapshots contain presentation data only. Each action is rebuilt and checked
 against current widgets on the UI thread, so a closed menu/window or a replaced
 file-list item can never redirect an old screen-reader request to another item.
 """
+import hashlib
 import itertools
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ import weakref
 import theme as T
 import widgets as W
 from accessibility_protocol import Channel, MAX_NODES
+from accessibility_text import TextGeometry
 
 
 def clean_name(text):
@@ -31,6 +33,7 @@ class Tree:
         self._items = weakref.WeakKeyDictionary()
         self.nodes = {}
         self.handlers = {}
+        self.queries = {}
 
     def identity(self, obj, suffix=''):
         if obj not in self._objects:
@@ -124,7 +127,7 @@ class Tree:
 
     def build(self):
         d = self.desk
-        self.nodes, self.handlers = {}, {}
+        self.nodes, self.handlers, self.queries = {}, {}, {}
         whole = (0, 0, d.w, d.h)
         self.add('root', None, T.PRODUCT_NAME, 'application', whole, self.states())
         self.add('desktop', 'root', T.PRODUCT_NAME + ' desktop', 'frame', whole,
@@ -210,6 +213,12 @@ class Tree:
             # Password contents never cross the helper socket, including diffs.
             values['text'] = '\u2022' * len(raw) if role == 'password text' else raw
             values['caret'], values['selection'] = self.text_position(widget)
+            layout = TextGeometry(widget, origin)
+            values['text_view'] = [self.identity(layout.font),
+                                   hashlib.sha256(values['text'].encode()).hexdigest(),
+                                   *layout.context()]
+            if showing:
+                self.queries[key] = lambda kind, args: TextGeometry(widget, origin).query(kind, args)
             states += ['selectable-text', 'single-line' if isinstance(widget, W.TextField) else 'multi-line']
             if enabled:
                 states.append('editable')
@@ -515,6 +524,18 @@ class Tree:
                                      'deselect_child', 'select_all', 'clear_selection') else cb()
         return result is not False
 
+    def query(self, key, kind, args):
+        self.build()
+        if kind not in ('character_rect', 'range_rect', 'offset_at_point'):
+            raise ValueError('Unknown text geometry request')
+        callback = self.queries.get(key)
+        if callback is None:
+            raise ValueError('Text control is closed or hidden')
+        node = self.nodes[key]
+        return {'value': callback(kind, args), 'node_rect': node['rect'], 'text_view': node['text_view'],
+                'canvas_size': [self.desk.w, self.desk.h],
+                'canvas_grid': [self.desk.term.cols, self.desk.term.rows] if self.desk.term else None}
+
 
 class Controller:
     def __init__(self, desk):
@@ -566,13 +587,19 @@ class Controller:
                 if message.get('type') != 'request':
                     continue
                 accepted = False
+                value = None
                 if time.monotonic() <= message.get('deadline', 0):
                     try:
-                        accepted = self.tree.apply(message['node'], message['kind'], message.get('args', []))
+                        kind = message['kind']
+                        if kind in ('character_rect', 'range_rect', 'offset_at_point'):
+                            value = self.tree.query(message['node'], kind, message.get('args', []))
+                            accepted = True
+                        else:
+                            accepted = self.tree.apply(message['node'], kind, message.get('args', []))
                     except (IndexError, KeyError, TypeError, ValueError):
                         accepted = False
                 self.publish()
-                self.channel.queue({'type': 'reply', 'request': message['request'], 'accepted': accepted})
+                self.channel.queue({'type': 'reply', 'request': message['request'], 'accepted': accepted, 'value': value})
         except (EOFError, OSError, ValueError):
             self.close()
 

@@ -49,9 +49,14 @@ Stop sharing stay on the physical desktop.
   support keyboard navigation and show focus. The matching native candidate
   supplies pane geometry through a bounded background observer. Component
   screen bounds and hit-testing use that live X11 placement and refuse expired,
-  hidden or mismatched grids. Installed physical-coordinate qualification,
-  text hit-testing, native Kilix chrome semantics, broader keyboard/input workflows
-  and complete installed screen-reader acceptance remain pending. Owned VM
+  hidden or mismatched grids. Text character/range extents and point-to-offset
+  queries run against the actual text widget on the UI thread, sharing its
+  drawing origins, font and scroll positions. Character boxes include glyph
+  overhang; point queries respect the text viewport. Masked fields measure only
+  displayed bullets. Typed replies revalidate text, font, layout and native
+  placement before returning coordinates. Broader text/coordinate qualification,
+  native Kilix chrome semantics, keyboard/input workflows and complete installed
+  screen-reader acceptance remain pending. Owned VM
   checks cover live icon/document/menu/dialog actions, saving edited Unicode
   text, and Orca speaking icons, menus and a real editor line. List-selection
   requests carry the selected item's identity so a refresh cannot redirect
