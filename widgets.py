@@ -883,12 +883,15 @@ class IconGrid(Widget):
         self.sb = VScroll()
         self.band = None              # rubber band (x0, y0, x1, y1)
         self._press_item = None
+        self._keyboard_item = None
+        self._selection_anchor = None
         self.label_fg = T.LIGHT if desktop else T.TEXT
         self.bg = None if desktop else T.WINDOW_BG
 
     def set_items(self, items):
         self.items = items
         self.sel.clear()
+        self._keyboard_item = self._selection_anchor = None
         self.invalidate()
 
     # layout
@@ -1028,9 +1031,11 @@ class IconGrid(Widget):
                 elif i not in self.sel:
                     self.sel = {i}
                 self._press_item = i
+                self._keyboard_item = self._selection_anchor = i
             else:
                 if not ev.ctrl:
                     self.sel.clear()
+                    self._keyboard_item = self._selection_anchor = None
                 if ev.btn == 1:
                     self.band = (ev.x, ev.y, ev.x, ev.y)
             self.invalidate()
@@ -1065,6 +1070,61 @@ class IconGrid(Widget):
                 if 0 <= i < len(self.items)]
 
     def on_key(self, ev):
+        navigation = {"Home": "Home", "End": "End", "ArrowLeft": "Left",
+                      "ArrowRight": "Right", "ArrowUp": "Up",
+                      "ArrowDown": "Down"}.get(ev.key)
+        if navigation is not None:
+            if ev.alt or ev.ctrl:
+                return False
+            if not self.items:
+                return True
+            current = self._keyboard_item
+            if current is None or not 0 <= current < len(self.items):
+                current = min(self.sel) if self.sel else None
+            if navigation == "End":
+                target = len(self.items) - 1
+            elif navigation == "Home" or current is None:
+                target = 0
+            else:
+                per_col, per_row = self._grid()
+                if self.desktop:
+                    step = {"Up": -1, "Down": 1,
+                            "Left": -per_col, "Right": per_col}[navigation]
+                    if (navigation == "Up" and current % per_col == 0
+                            or navigation == "Down" and current % per_col == per_col - 1
+                            or navigation == "Left" and current < per_col
+                            or navigation == "Right" and current // per_col == (len(self.items) - 1) // per_col):
+                        step = 0
+                else:
+                    step = {"Left": -1, "Right": 1,
+                            "Up": -per_row, "Down": per_row}[navigation]
+                    if (navigation == "Left" and current % per_row == 0
+                            or navigation == "Right" and current % per_row == per_row - 1
+                            or navigation == "Up" and current < per_row
+                            or navigation == "Down" and current // per_row == (len(self.items) - 1) // per_row):
+                        step = 0
+                target = max(0, min(len(self.items) - 1, current + step))
+            if ev.shift:
+                if self._selection_anchor is None:
+                    self._selection_anchor = current if current is not None else target
+                lo, hi = sorted((self._selection_anchor, target))
+                self.sel = set(range(lo, hi + 1))
+            else:
+                self.sel = {target}
+                self._selection_anchor = target
+            self._keyboard_item = target
+            if not self.desktop:
+                _, per_row = self._grid()
+                self.sb.total = self._rows_total()
+                self.sb.page = max(1, (self.h - 8) // T.CELL_H)
+                row = target // per_row
+                if row < self.sb.pos:
+                    self.sb.pos = row
+                elif row >= self.sb.pos + self.sb.page:
+                    self.sb.pos = row - self.sb.page + 1
+                self.sb.clamp()
+            self.invalidate()
+            return True
         if ev.key == "Enter" and self.sel and self.on_activate:
             self.on_activate(self.items[sorted(self.sel)[0]])
             return True

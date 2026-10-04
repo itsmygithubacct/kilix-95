@@ -34,6 +34,8 @@ cross that relay while the application's windows stay on its private display.
   widget menus. The host's dropdowns appear above the desktop pane.
 - Settings exposes the page-strip edge. Desktop Amp and sibling TUI launches
   carry the selected content installation root.
+- Desktop and file-manager icons support arrow keys, Home/End, Shift selection
+  ranges and Enter activation. File-manager navigation reveals offscreen rows.
 
 ## Release 0.2.0
 
