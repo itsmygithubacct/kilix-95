@@ -45,7 +45,7 @@ Prepared for the coordinated Plebian-OS 0.2.0 release.
 - Interrupting startup now restores the terminal even before the main loop is
   active. Terminal-mode and private-frame cleanup are idempotent across both
   early exits and normal shutdown.
-- The provider contract advances to Kilix SDK 1.14 for the coordinated host
+- The provider contract advances to Kilix SDK 1.16 for the coordinated host
   pairing while retaining the existing provider API and security declarations.
 
 ## Release 0.1.9
@@ -783,10 +783,16 @@ Limitations:
 - terminal/TUI apps should not be launched through XPane because private Xvfb
   has no usable TTY for them;
 - GL-heavy apps may be constrained by software rendering;
-- clipboard bridging handles text-oriented CLIPBOARD selection, not arbitrary
-  large binary clipboard transfers;
+- clipboard bridging carries Unicode text, PNG/JPEG images, and local file URI
+  lists through the host SDK, with incremental transfers and a 64 MiB total
+  data limit; other formats and cross-display drag/drop remain unsupported;
 - ffmpeg/Xvfb failures close the pane or show an error instead of retrying
   indefinitely.
+
+File Manager Copy and Cut publish the standard URI-list, GNOME copied-files,
+and KDE cut-selection representations to this same clipboard. Paste accepts
+local file URIs copied by another app; a later text or image copy replaces the
+file selection. Failed and same-folder moves retain their pending cut items.
 
 ## Games
 
