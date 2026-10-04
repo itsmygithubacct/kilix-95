@@ -159,10 +159,12 @@ class DeskTerm(kilix_term.Term):
         # the Start menu (_parse_csi tags every key event with its type;
         # _norm_key drops the releases).
         self.write("\x1b[?1049h\x1b[2J\x1b[?25l\x1b[?7l\x1b[>15u"
-                   "\x1b[?1003h\x1b[?1006h\x1b[?1016h\x1b[?2004h"
+                   "\x1b[?1003h\x1b[?1006h\x1b[?1016h\x1b[?2004h\x1b[?1004h"
                    f"\x1b]2;{T.PRODUCT_NAME}\x07")
 
     def _parse_csi(self, params, final):
+        if not params and final in ('I', 'O'):
+            return {'kind': 'focus', 'focused': final == 'I'}
         # tag key events with the kitty event type (1 press, 2 repeat,
         # 3 release) — browse drops it; the switcher needs it
         ev = super()._parse_csi(params, final)
@@ -191,7 +193,7 @@ class DeskTerm(kilix_term.Term):
             delete = "\x1b_Ga=d,d=A\x1b\\"
             if os.environ.get("KILIX_STREAM") == "1" and os.environ.get("TMUX"):
                 delete = kilix_graphics.wrap_tmux_passthrough(delete)
-            self.write("\x1b[<u\x1b[?1003l\x1b[?1006l\x1b[?1016l\x1b[?2004l"
+            self.write("\x1b[<u\x1b[?1003l\x1b[?1006l\x1b[?1016l\x1b[?2004l\x1b[?1004l"
                        "\x1b[?7h" + delete + "\x1b[?25h\x1b[?1049l")
         finally:
             import termios
@@ -201,6 +203,8 @@ class DeskTerm(kilix_term.Term):
 class Desk:
     def __init__(self, term=None, size=None, draw_cursor=False):
         self.term = term
+        self.frontend_focused = term is None
+        self.accessibility = None
         if term:
             self.w = int(term.cols * term.cell_w)
             self.h = int(term.rows * term.cell_h)
@@ -1204,7 +1208,12 @@ class Desk:
             term.restore()
         finally:
             try:
-                self.cleanup_shm()
+                try:
+                    accessibility, self.accessibility = self.accessibility, None
+                    if accessibility is not None:
+                        accessibility.close()
+                finally:
+                    self.cleanup_shm()
             finally:
                 bridge, self.clip_host = self.clip_host, None
                 if bridge is not None:
@@ -1252,6 +1261,21 @@ class Desk:
         except Exception as error:
             wm.msgbox(self, "Model setup", str(error), icon="error")
         self._first_run_password_nag()    # …and pop the change-password bubble
+        # The helper owns the D-Bus loop; the desktop retains all widget actions.
+        if os.environ.get('DBUS_SESSION_BUS_ADDRESS') and os.isatty(term.fd):
+            try:
+                from kilix_sdk import panes
+                workspace = panes.snapshot(timeout=0.3)
+                mine, focused = workspace.me(), workspace.focused()
+                self.frontend_focused = mine is not None and focused is not None and mine.id == focused.id
+            except Exception:
+                # Subsequent terminal focus reports remain authoritative.
+                self.frontend_focused = False
+            try:
+                from accessibility import Controller
+                self.accessibility = Controller(self)
+            except (OSError, ValueError):
+                self.accessibility = None
         last_blink = time.time()
         self._last_blit = 0.0
         self._last_full_blit = 0.0
@@ -1269,6 +1293,9 @@ class Desk:
                         cb()
                 if term.fd in r:
                     for raw in term.read_input():
+                        if raw['kind'] == 'focus':
+                            self.frontend_focused = raw['focused']
+                            continue
                         self._last_input = time.time()
                         if self.saving:
                             self._wake_saver()   # any input exits; swallow it

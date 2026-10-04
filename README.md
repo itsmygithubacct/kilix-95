@@ -40,6 +40,15 @@ Stop sharing stay on the physical desktop.
   carry the selected content installation root.
 - Desktop and file-manager icons support arrow keys, Home/End, Shift selection
   ranges and Enter activation. File-manager navigation reveals offscreen rows.
+- The candidate exposes the live pixel shell through AT-SPI: desktop icons,
+  windows, taskbar actions, menus, buttons, checkboxes, text editors, lists,
+  tab strips and dropdowns. Requests run on the UI thread against current
+  controls; closed or replaced items are refused, modal dialogs restrict
+  underlying actions, and password text crosses the bridge only as bullets.
+  The owned GIO helper exits with its desktop. Tab strips and dropdowns also
+  support keyboard navigation and show focus. Physical screen-coordinate
+  mapping, native Kilix chrome semantics, broader keyboard/input workflows
+  and installed screen-reader acceptance remain pending.
 - Full graphics placements recur even while damage updates are active, so a
   recovered frontend can rebuild the desktop image without a manual resize.
 - With the matching host candidate, a surviving broker-backed desktop refreshes

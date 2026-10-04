@@ -1138,6 +1138,7 @@ class IconGrid(Widget):
 # ── tabs ────────────────────────────────────────────────────────────────────
 
 class TabBar(Widget):
+    focusable = True
     H = 21
     PAD = 18          # roomy default: 9px of air either side of the label
     MIN_PAD = 6       # below this the labels start to touch their borders
@@ -1197,6 +1198,9 @@ class TabBar(Widget):
             d.text((tx + (tw - T.text_w(T.FONT, label)) // 2,
                     self.y + (4 if not sel else 3)), label,
                    font=T.FONT, fill=T.TEXT)
+            if sel and self.window and self.window.focus is self:
+                T.focus_rect(d, tx + 3, self.y + 3, tx + tw - 4,
+                             self.y + self.H - 4)
             tx += tw
 
     def _tab_at(self, px):
@@ -1215,6 +1219,20 @@ class TabBar(Widget):
                 self.invalidate()
                 if self.cb:
                     self.cb(i)
+        return True
+
+    def on_key(self, ev):
+        if ev.ctrl or ev.alt or not self.tabs:
+            return False
+        if ev.key not in ('ArrowLeft', 'ArrowRight', 'Home', 'End'):
+            return False
+        target = (0 if ev.key == 'Home' else len(self.tabs) - 1 if ev.key == 'End'
+                  else (self.active + (-1 if ev.key == 'ArrowLeft' else 1)) % len(self.tabs))
+        if target != self.active:
+            self.active = target
+            self.invalidate()
+            if self.cb:
+                self.cb(target)
         return True
 
 
@@ -1690,6 +1708,8 @@ class Dropdown(Widget):
         cx, cy = (bx + x1 - 2) // 2, (y0 + y1) // 2
         d.polygon([(cx - 3, cy - 1), (cx + 4, cy - 1), (cx, cy + 3)],
                   fill=T.TEXT)
+        if self.window and self.window.focus is self:
+            T.focus_rect(d, x0 + 3, y0 + 3, bx - 2, y1 - 3)
 
     def on_mouse(self, ev):
         if ev.press and ev.btn == 1:
@@ -1707,3 +1727,19 @@ class Dropdown(Widget):
         self.invalidate()
         if self.cb:
             self.cb(self.options[i])
+
+    def on_key(self, ev):
+        if not self.options or ev.ctrl:
+            return False
+        if ev.key in ('Enter', ' ') or ev.alt and ev.key == 'ArrowDown':
+            self.on_mouse(Ev(kind='mouse', press=True, btn=1))
+            self.desk.menus.stack[-1].move_hot(1, start=-1)
+            return True
+        if ev.alt or ev.key not in ('ArrowUp', 'ArrowDown', 'Home', 'End'):
+            return False
+        target = (0 if ev.key == 'Home' else len(self.options) - 1 if ev.key == 'End'
+                  else max(0, min(len(self.options) - 1,
+                                  self.index + (-1 if ev.key == 'ArrowUp' else 1))))
+        if target != self.index:
+            self._pick(target)
+        return True
