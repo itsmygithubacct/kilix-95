@@ -40,6 +40,9 @@ Stop sharing stay on the physical desktop.
   carry the selected content installation root.
 - Desktop and file-manager icons support arrow keys, Home/End, Shift selection
   ranges and Enter activation. File-manager navigation reveals offscreen rows.
+- The shared clipboard hub tracks pending copies so the matching SDK can hold
+  paste requests until the complete new value arrives. Failed copies refuse
+  waiting pastes; expired or closed requests release their resources.
 - Desktop and open file-manager views follow external file creation, removal,
   renaming and launcher edits. Filesystem scans run off the UI thread; unchanged
   items retain their accessible identities, selection and keyboard anchors.
