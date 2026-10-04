@@ -41,7 +41,9 @@ Stop sharing stay on the physical desktop.
 - Desktop and file-manager icons support arrow keys, Home/End, Shift selection
   ranges and Enter activation. File-manager navigation reveals offscreen rows.
 - The shared clipboard hub tracks pending copies so the matching SDK can hold
-  paste requests until the complete new value arrives. Failed copies refuse
+  paste requests until the complete requested format arrives. Completed formats
+  are usable while other representations are still being collected; the hub
+  retains its previous bundle until the new bundle finishes. Failed copies refuse
   waiting pastes; expired or closed requests release their resources.
   Pending-copy notifications refresh the private panes' cached clipboard formats.
 - Desktop and open file-manager views follow external file creation, removal,
