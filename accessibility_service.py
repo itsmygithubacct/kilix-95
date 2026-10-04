@@ -488,6 +488,10 @@ class Service:
             kind = {'SelectChild': 'select_child', 'DeselectChild': 'deselect_child',
                     'DeselectSelectedChild': 'deselect_child', 'SelectAll': 'select_all',
                     'ClearSelection': 'clear_selection'}[method]
+            if kind in ('select_child', 'deselect_child'):
+                if not 0 <= args[0] < len(node['children']):
+                    return (False,)
+                args = (args[0], node['children'][args[0]])
             self.request(invocation, node, kind, args)
             return None
         raise NotImplementedError()

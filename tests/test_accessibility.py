@@ -73,6 +73,8 @@ grid.set_items([dict(label='same.txt', icon='file', data='new')])
 new = named(tree, 'same.txt', 'list item')
 assert old['id'] != new['id']
 assert not tree.apply(old['id'], 'activate', [])
+assert not tree.apply(tree.identity(grid), 'select_child', [0, old['id']])
+assert tree.apply(tree.identity(grid), 'select_child', [0, new['id']])
 assert tree.apply(new['id'], 'activate', []) and answers[-1] == 'new'
 
 # Closed/replaced popup actions cannot activate a newly opened menu row.

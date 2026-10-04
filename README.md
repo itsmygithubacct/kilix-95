@@ -48,7 +48,11 @@ Stop sharing stay on the physical desktop.
   The owned GIO helper exits with its desktop. Tab strips and dropdowns also
   support keyboard navigation and show focus. Physical screen-coordinate
   mapping, native Kilix chrome semantics, broader keyboard/input workflows
-  and installed screen-reader acceptance remain pending.
+  and complete installed screen-reader acceptance remain pending. Owned VM
+  checks cover live icon/document/menu/dialog actions, saving edited Unicode
+  text, and Orca speaking icons, menus and a real editor line. List-selection
+  requests carry the selected item's identity so a refresh cannot redirect
+  a pending index-based request to a replacement file.
 - Full graphics placements recur even while damage updates are active, so a
   recovered frontend can rebuild the desktop image without a manual resize.
 - With the matching host candidate, a surviving broker-backed desktop refreshes

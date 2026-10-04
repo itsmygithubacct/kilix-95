@@ -106,7 +106,7 @@ class Tree:
         if getattr(widget, 'accessibility_name', None):
             return widget.accessibility_name
         if isinstance(widget, (W.Button, W.Checkbox, W.Label)):
-            return clean_name(widget.text)
+            return clean_name(widget.text) or (getattr(widget, 'icon', '') or '').replace('_', ' ').capitalize()
         labels = [w for w in win.widgets if isinstance(w, W.Label) and w.visible
                   and ((abs(w.y - widget.y) < 24 and w.x + w.w <= widget.x + 8)
                        or (0 <= widget.y - w.y <= 28 and abs(w.x - widget.x) < 20))]
@@ -499,6 +499,14 @@ class Tree:
         cb = self.handlers.get((key, kind))
         if cb is None:
             return False
+        if kind in ('select_child', 'deselect_child'):
+            # The helper resolves an index to the actual item identity before
+            # queueing. A refresh can replace that index before the UI reads it.
+            if (len(args) != 2 or type(args[0]) is not int
+                    or not 0 <= args[0] < len(self.nodes[key]['children'])
+                    or self.nodes[key]['children'][args[0]] != args[1]):
+                return False
+            args = args[:1]
         result = cb(args) if kind in ('set_text', 'insert_text', 'delete_text', 'caret', 'selection',
                                      'copy_text', 'cut_text', 'paste_text', 'select_child',
                                      'deselect_child', 'select_all', 'clear_selection') else cb()
