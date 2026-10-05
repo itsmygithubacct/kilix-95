@@ -223,6 +223,7 @@ class AuthFakeSup:
         self.session = session
         self.xauth = "/tmp/kilix-private-xauth"
         self.spawns = {}
+        self.commands = {}
         self.fds = []
         AuthFakeSup.instances.append(self)
 
@@ -234,6 +235,7 @@ class AuthFakeSup:
 
     def spawn(self, name, _cmd, **kwargs):
         self.spawns[name] = kwargs
+        self.commands[name] = _cmd
         if name == "cap":
             rfd, wfd = os.pipe()
             self.fds.extend((rfd, wfd))
@@ -276,6 +278,8 @@ try:
     calls = AuthFakeSup.instances[-1].spawns
     assert calls["app"]["env"]["DISPLAY"] == ":77"
     assert calls["app"]["env"]["XAUTHORITY"] == "/tmp/kilix-private-xauth"
+    assert "DBUS_SESSION_BUS_ADDRESS" not in calls["app"]["env"]
+    assert "dbus-run-session" in AuthFakeSup.instances[-1].commands["app"][0]
     assert calls["cap"]["env"]["DISPLAY"] == ":77"
     assert calls["cap"]["env"]["XAUTHORITY"] == "/tmp/kilix-private-xauth"
 finally:

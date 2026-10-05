@@ -25,10 +25,62 @@ Quit through Start -> Shut Down..., or press `Ctrl+Alt+Q`.
 Prepared for the coordinated Plebian-OS 0.2.2 candidate, upgrading from 0.2.1.
 Image, upgrade and final human acceptance remain pending.
 
+The RC5 desktop-completion candidate gives XPane applications their own
+singleton bus and uses the matching Kilix SDK's portal relay to reach physical
+desktop services. Portal request/session handles and Unix file descriptors
+cross that relay while the application's windows stay on its private display.
+With the matching Kilix/Pleb candidates, each local XPane is offered separately
+in the physical capture picker, under its desktop application title. Capture
+includes that pane's private application windows and dialogs; consent and
+Stop sharing stay on the physical desktop.
+
 - CI pairs this provider with the coordinated host's floating Start and status
   widget menus. The host's dropdowns appear above the desktop pane.
 - Settings exposes the page-strip edge. Desktop Amp and sibling TUI launches
   carry the selected content installation root.
+- Desktop and file-manager icons support arrow keys, Home/End, Shift selection
+  ranges and Enter activation. File-manager navigation reveals offscreen rows.
+- The shared clipboard hub tracks pending copies so the matching SDK can hold
+  paste requests until the complete requested format arrives. Completed formats
+  are usable while other representations are still being collected; the hub
+  retains its previous bundle until the new bundle finishes. Failed copies refuse
+  waiting pastes; expired or closed requests release their resources.
+  Pending-copy notifications refresh the private panes' cached clipboard formats.
+- Desktop and open file-manager views follow external file creation, removal,
+  renaming and launcher edits. Filesystem scans run off the UI thread; unchanged
+  items retain their accessible identities, selection and keyboard anchors.
+  Refresh preserves address drafts and scroll position, defers through menus
+  and drags, and refuses activation of a replaced file. Missing folders show an
+  accessible status and recover when recreated. Linux directory notifications
+  are backed by periodic consistency scans; owned monitors close with the desktop.
+- The candidate exposes the live pixel shell through AT-SPI: desktop icons,
+  windows, taskbar actions, menus, buttons, checkboxes, text editors, lists,
+  tab strips and dropdowns. Requests run on the UI thread against current
+  controls; closed or replaced items are refused, modal dialogs restrict
+  underlying actions, and password text crosses the bridge only as bullets.
+  The owned GIO helper exits with its desktop. Tab strips and dropdowns also
+  support keyboard navigation and show focus. The matching native candidate
+  supplies pane geometry through a bounded background observer. Component
+  screen bounds and hit-testing use that live X11 placement and refuse expired,
+  hidden or mismatched grids. Text character/range extents and point-to-offset
+  queries run against the actual text widget on the UI thread, sharing its
+  drawing origins, font and scroll positions. Character boxes include glyph
+  overhang; point queries respect the text viewport. Masked fields measure only
+  displayed bullets. Typed replies revalidate text, font, layout and native
+  placement before returning coordinates. Broader text/coordinate qualification,
+  native Kilix chrome semantics, keyboard/input workflows and complete installed
+  screen-reader acceptance remain pending. Owned VM
+  checks cover live icon/document/menu/dialog actions, saving edited Unicode
+  text, and Orca speaking icons, menus and a real editor line. List-selection
+  requests carry the selected item's identity so a refresh cannot redirect
+  a pending index-based request to a replacement file.
+- The text editor supports Ctrl+Home/End for document boundaries, including
+  Shift selection. Accessible focus dismisses open popup menus before moving
+  to a desktop icon or window control.
+- Full graphics placements recur even while damage updates are active, so a
+  recovered frontend can rebuild the desktop image without a manual resize.
+- With the matching host candidate, a surviving broker-backed desktop refreshes
+  its authenticated route from the live attach process before launching tabs.
 
 ## Release 0.2.0
 
@@ -40,7 +92,7 @@ Prepared for the coordinated Plebian-OS 0.2.0 release.
 - Interrupting startup now restores the terminal even before the main loop is
   active. Terminal-mode and private-frame cleanup are idempotent across both
   early exits and normal shutdown.
-- The provider contract advances to Kilix SDK 1.14 for the coordinated host
+- The provider contract advances to Kilix SDK 1.16 for the coordinated host
   pairing while retaining the existing provider API and security declarations.
 
 ## Release 0.1.9
@@ -778,10 +830,16 @@ Limitations:
 - terminal/TUI apps should not be launched through XPane because private Xvfb
   has no usable TTY for them;
 - GL-heavy apps may be constrained by software rendering;
-- clipboard bridging handles text-oriented CLIPBOARD selection, not arbitrary
-  large binary clipboard transfers;
+- clipboard bridging carries Unicode text, PNG/JPEG images, and local file URI
+  lists through the host SDK, with incremental transfers and a 64 MiB total
+  data limit; other formats and cross-display drag/drop remain unsupported;
 - ffmpeg/Xvfb failures close the pane or show an error instead of retrying
   indefinitely.
+
+File Manager Copy and Cut publish the standard URI-list, GNOME copied-files,
+and KDE cut-selection representations to this same clipboard. Paste accepts
+local file URIs copied by another app; a later text or image copy replaces the
+file selection. Failed and same-folder moves retain their pending cut items.
 
 ## Games
 
