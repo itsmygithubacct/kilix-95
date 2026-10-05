@@ -468,8 +468,12 @@ class RichTextArea(W.Widget):
                     if sb >= sa:
                         sx0 = self._x_of(vl, sa)
                         sx1 = self._x_of(vl, sb) + tail
-                        cd.rectangle([sx0, vy, sx1 - 1, vy + vl["h"] - 1],
-                                     fill=T.SEL_BG)
+                        # A zero-width segment (an empty last line inside the
+                        # selection) has nothing to paint; Pillow rejects the
+                        # inverted rectangle it would otherwise produce.
+                        if sx1 > sx0:
+                            cd.rectangle([sx0, vy, sx1 - 1, vy + vl["h"] - 1],
+                                         fill=T.SEL_BG)
             # runs
             x = 0
             for r, txt in _segments(para, vl["a"], vl["b"]):
