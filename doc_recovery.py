@@ -159,6 +159,14 @@ def restore(desk, token, record):
     return True
 
 
+_APP_LABELS = {"notepad": "Notepad", "wordpad": "WordPad"}
+
+
+def app_label(app):
+    """The program's own name as the user sees it in its title bar."""
+    return _APP_LABELS.get(app, app.title())
+
+
 def offer(desk, items=None, reason=None):
     """Ask the user about pending checkpoints; nothing happens without an answer."""
     import wm
@@ -167,7 +175,7 @@ def offer(desk, items=None, reason=None):
         return
     names = []
     for _token_, record in items:
-        label = f"{record.get('name', 'Untitled')} ({record['app'].title()})"
+        label = f"{record.get('name', 'Untitled')} ({app_label(record['app'])})"
         if record.get("too_large"):
             label += " - too large to keep, changes lost"
         names.append("  " + label)

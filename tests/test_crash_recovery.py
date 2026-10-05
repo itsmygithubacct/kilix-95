@@ -302,4 +302,7 @@ assert lost is not None
 press(lost, "OK")
 assert doc_recovery.pending() == []
 
+assert doc_recovery.app_label("wordpad") == "WordPad"
+assert doc_recovery.app_label("notepad") == "Notepad"
+
 print("ok")
