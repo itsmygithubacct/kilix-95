@@ -907,6 +907,20 @@ class WordPad(wm.Window):
     def request_close(self):
         self._if_saved(self.close)
 
+    # ── crash recovery (doc_recovery) ────────────────────────────────────────
+    recovery_app = "wordpad"
+
+    def recovery_snapshot(self):
+        return {"format": "krt", "doc": self.rta.to_obj()}
+
+    def recovery_restore(self, record):
+        """Show a checkpointed document as unsaved, bound to its original file."""
+        self.rta.from_obj(record["snapshot"]["doc"])
+        self.path = record.get("path")
+        self.modified = True
+        self._retitle()
+        self._state()
+
     # ── menus ────────────────────────────────────────────────────────────────
     def _file_menu(self):
         MI, sep = W.MenuItem, W.sep
