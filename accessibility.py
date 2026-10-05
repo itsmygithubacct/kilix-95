@@ -25,6 +25,10 @@ def clean_name(text):
     return str(text).split('\t', 1)[0]
 
 
+
+GEOMETRY_INTERVAL = .25
+GEOMETRY_MAX_BACKOFF = 30.0
+
 class Tree:
     def __init__(self, desk):
         self.desk = desk
@@ -571,13 +575,18 @@ class Controller:
             from kilix_sdk import geometry
         except ImportError:
             return
+        delay = GEOMETRY_INTERVAL
         while not self._geometry_stop.is_set():
             try:
                 value, unused = geometry.current(timeout=.4)
                 self._geometry = (time.monotonic(), value)
+                delay = GEOMETRY_INTERVAL
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+                # A refused or unavailable query is not retried four times a
+                # second for the whole session: back off until it answers.
                 self._geometry = None
-            if self._geometry_stop.wait(.25):
+                delay = min(delay * 2, GEOMETRY_MAX_BACKOFF)
+            if self._geometry_stop.wait(delay):
                 return
 
     def read(self):
