@@ -35,6 +35,7 @@ CONTROL_ITEMS = [
     ("Input Methods", "keyboard", "host-settings", "input-method"),
     ("Accessibility", "system", "host-settings", "accessibility"),
     ("Lock Desktop", "key", "host-settings", "lock"),
+    ("Backup", "floppy", "backup", None),
 ]
 FULL_EXPERIENCE_ITEMS = frozenset({
     "networkhood", "dialup", "hardware", "powertoys",

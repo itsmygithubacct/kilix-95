@@ -313,6 +313,26 @@ class Desk:
     def quit(self):
         self.running = False
 
+    #: Exit status that asks the launcher's supervisor for an immediate restart.
+    RESTART_STATUS = 75
+
+    def restart_after_restore(self, message):
+        """Reload restored settings: stop saving the replaced state, then restart.
+
+        Under the launcher's supervisor the desktop exits with RESTART_STATUS
+        and comes straight back in the same tab; otherwise it relaunches itself
+        in a new tab the way the Restart Desktop action does."""
+        self.shell.state_frozen = True
+
+        def go(_answer=None):
+            if os.environ.get("KILIX_DESKTOP_SUPERVISED") == "1":
+                self.exit_status = self.RESTART_STATUS
+                self.quit()
+            else:
+                self.shell._restart_desktop()
+        wm_mod.msgbox(self, "Restore", message + "\n\nThe desktop restarts now.",
+                      icon="info", cb=go)
+
     def add_clip_sink(self, sink):
         """Register a realm (an XPane's Xvfb, the host X) that should mirror
         the clipboard hub. `sink` is a callable(text)."""
@@ -1201,7 +1221,9 @@ class Desk:
             import doc_recovery
             self.tick_hooks.append(lambda now: doc_recovery.tick(self, now))
             reason = None
-            if os.environ.get("KILIX_DESKTOP_RESTARTED"):
+            if (os.environ.get("KILIX_DESKTOP_RESTARTED")
+                    and os.environ.get("KILIX_DESKTOP_LAST_STATUS")
+                    != str(self.RESTART_STATUS)):
                 reason = ("The desktop restarted after it stopped unexpectedly.\n"
                           "These documents had unsaved changes:")
             doc_recovery.offer(self, reason=reason)
@@ -1586,6 +1608,9 @@ def main():
         return
     desk = Desk(term=DeskTerm(), draw_cursor=a.cursor)
     desk.run()
+    status = getattr(desk, "exit_status", 0)
+    if status:
+        raise SystemExit(status)
 
 
 if __name__ == "__main__":

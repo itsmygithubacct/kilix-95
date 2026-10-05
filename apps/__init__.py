@@ -81,6 +81,9 @@ def open(desk, name, arg=None):
     elif name == "paint":
         from . import paint
         desk.wm.add(paint.Paint(desk, arg))
+    elif name == "backup":
+        from . import backup
+        desk.wm.add(backup.BackupWin(desk, arg))
     elif name == "wordpad":
         from . import wordpad
         desk.wm.add(wordpad.WordPad(desk, arg))

@@ -156,6 +156,8 @@ class Shell:
         self.desk.dirty = True
 
     def _save_state(self):
+        if getattr(self, "state_frozen", False):
+            return                    # a restore just replaced the saved state
         try:
             self.state_store.save_dict(self.state)
         except durable_state.StateError:
