@@ -305,4 +305,31 @@ assert doc_recovery.pending() == []
 assert doc_recovery.app_label("wordpad") == "WordPad"
 assert doc_recovery.app_label("notepad") == "Notepad"
 
+# ── D3: Paint keeps an unsaved image the same way ───────────────────────────
+from apps.paint import Paint                  # noqa: E402
+from PIL import Image as _Image               # noqa: E402
+
+for token, _record in doc_recovery.pending():
+    doc_recovery._forget(token)
+pp = os.path.join(tmp, "pic.png")
+_Image.new("RGB", (40, 30), (255, 255, 255)).save(pp)
+pt = Paint(d)
+d.wm.add(pt)
+pt._load(pp)                                  # File > Open
+pt.canvas.img.putpixel((5, 7), (200, 10, 20))
+pt.mark_dirty()
+tick(d)
+[(_t, record)] = doc_recovery.pending()
+assert record["app"] == "paint" and record["path"] == pp, (record["app"], record["path"], pp, pt.path)
+d6 = H.make_desk()
+d6._start_document_recovery()
+press(box(d6, "Document Recovery"), "Restore")
+back = H.find_window(d6, "Paint")
+assert back is not None and back.modified and back.path == pp
+assert back.canvas.img.getpixel((5, 7)) == (200, 10, 20), "the unsaved pixels came back"
+assert back.canvas.img.size == pt.canvas.img.size
+assert doc_recovery.app_label("paint") == "Paint"
+for token, _record in doc_recovery.pending():
+    doc_recovery._forget(token)
+
 print("ok")

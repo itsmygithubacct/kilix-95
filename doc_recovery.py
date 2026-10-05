@@ -159,7 +159,7 @@ def restore(desk, token, record):
     return True
 
 
-_APP_LABELS = {"notepad": "Notepad", "wordpad": "WordPad"}
+_APP_LABELS = {"notepad": "Notepad", "wordpad": "WordPad", "paint": "Paint"}
 
 
 def app_label(app):
