@@ -378,8 +378,9 @@ class TextField(Widget):
         if s and focused:
             sx0 = ox + T.text_w(T.FONT, disp[:s[0]])
             sx1 = ox + T.text_w(T.FONT, disp[:s[1]])
-            sd.rectangle([max(0, sx0), ty - 1, min(iw, sx1), ty + 13],
-                         fill=T.SEL_BG)
+            sx0, sx1 = max(0, sx0), min(iw, sx1)
+            if sx1 >= sx0:        # a selection wholly outside the viewport paints nothing
+                sd.rectangle([sx0, ty - 1, sx1, ty + 13], fill=T.SEL_BG)
         sd.text((ox, ty), disp, font=T.FONT, fill=T.TEXT)
         if s and focused:
             sd.text((ox + T.text_w(T.FONT, disp[:s[0]]), ty),

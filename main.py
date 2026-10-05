@@ -200,6 +200,34 @@ class DeskTerm(kilix_term.Term):
             termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
 
 
+CRASH_LOG_LIMIT = 1024 * 1024
+
+
+def crash_report(text):
+    """Keep a fault's traceback in the provider's private crash log.
+
+    stderr is the terminal the desktop itself draws into, so a report written
+    there would be painted over the desktop. The log keeps its newest megabyte."""
+    path = storage.state_dir("crash.log")
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        entry = ("=== %s pid %d\n%s\n" % (stamp, os.getpid(), text)).encode(
+            "utf-8", "replace")
+        try:
+            with open(path, "rb") as fh:
+                old = fh.read()
+        except OSError:
+            old = b""
+        data = (old + entry)[-CRASH_LOG_LIMIT:]
+        fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass
+
+
 class Desk:
     def __init__(self, term=None, size=None, draw_cursor=False):
         self.term = term
@@ -377,10 +405,14 @@ class Desk:
         fb = self.fb
         d = W.drawer(fb)
         self.shell.draw(fb, d)
-        for win in self.wm.windows:
+        for win in list(self.wm.windows):
             if win.minimized:
                 continue
-            surf = win.render()
+            try:
+                surf = win.render()
+            except Exception:
+                self.window_fault(win, "drawing")
+                continue
             fb.paste(surf, (win.x, win.y), win.compose_mask)
         self.taskbar.draw(fb, d)
         self.menus.draw(fb, d)
@@ -1014,7 +1046,7 @@ class Desk:
                     self.wm.activate(win)
                 self.mouse_owner = self._route_window(win)
                 self._owner_btn = ev.btn
-            win.on_mouse(ev)
+            self._guarded(win, "a mouse event", win.on_mouse, ev)
             if self.wm.drag:
                 self.mouse_owner = self._route_drag
             return
@@ -1032,7 +1064,7 @@ class Desk:
             if self.wm.drag:
                 self._route_drag(ev)
             else:
-                win.on_mouse(ev)
+                self._guarded(win, "a mouse event", win.on_mouse, ev)
         return route
 
     def _route_drag(self, ev):
@@ -1096,7 +1128,8 @@ class Desk:
             if self.wm.active:
                 self.wm.active.request_close()
             return
-        if self.wm.active and self.wm.active.on_key(ev):
+        active = self.wm.active
+        if active and self._guarded(active, "a key press", active.on_key, ev):
             return
         if not self.wm.active or self.wm.modal_top() is None:
             self.shell.on_key(ev)
@@ -1108,10 +1141,12 @@ class Desk:
             return
         win = self.wm.active
         if win and isinstance(win.focus, (W.TextField, W.TextArea)):
-            win.focus.insert(text)
-            if isinstance(win.focus, W.TextArea):
-                win.focus._reveal()
-            win.invalidate()
+            def paste():
+                win.focus.insert(text)
+                if isinstance(win.focus, W.TextArea):
+                    win.focus._reveal()
+                win.invalidate()
+            self._guarded(win, "a paste", paste)
 
     # ── resize ──────────────────────────────────────────────────────────────
     def do_resize(self):
@@ -1144,21 +1179,96 @@ class Desk:
             from system_voice import controller
             controller(self).startup()
         except Exception as error:
-            wm.msgbox(self, "System voice", str(error), icon="error")
+            wm_mod.msgbox(self, "System voice", str(error), icon="error")
 
     def _start_dictation_offer(self):
         try:
             from dictation_offer import controller
             controller(self).startup()
         except Exception as error:
-            wm.msgbox(self, "Dictation", str(error), icon="error")
+            wm_mod.msgbox(self, "Dictation", str(error), icon="error")
 
     def _start_workflows_offer(self):
         try:
             from workflows_offer import controller
             controller(self).startup()
         except Exception as error:
-            wm.msgbox(self, "Kilix Workflows", str(error), icon="error")
+            wm_mod.msgbox(self, "Kilix Workflows", str(error), icon="error")
+
+    def _start_document_recovery(self):
+        """Checkpoint unsaved documents each pass; offer any a crash left behind."""
+        try:
+            import doc_recovery
+            self.tick_hooks.append(lambda now: doc_recovery.tick(self, now))
+            reason = None
+            if os.environ.get("KILIX_DESKTOP_RESTARTED"):
+                reason = ("The desktop restarted after it stopped unexpectedly.\n"
+                          "These documents had unsaved changes:")
+            doc_recovery.offer(self, reason=reason)
+        except Exception as error:
+            wm_mod.msgbox(self, "Document Recovery", str(error), icon="error")
+
+    def window_fault(self, win, where):
+        """Close one failing window instead of letting it end the desktop.
+
+        Its unsaved document is checkpointed first and kept for restore."""
+        import traceback
+        import doc_recovery
+        crash_report("%s failed during %s; it was closed\n%s"
+                     % (type(win).__name__, where, traceback.format_exc()))
+        kept = False
+        try:
+            kept = doc_recovery.write(win)
+        except Exception:
+            pass
+        win._recovery_fault = True
+        try:
+            self.wm.close(win)
+        except Exception:
+            if win in self.wm.windows:
+                self.wm.windows.remove(win)
+            if self.wm.active is win:
+                self.wm.active = None
+        self.mouse_owner = None
+        self.dirty = True
+        title = (getattr(win, "title", "") or type(win).__name__).lstrip("*")
+        text = f"{title}\n\nstopped because of an internal error and was closed."
+        token = getattr(win, "_recovery_token", None)
+        if kept and token:
+            def answer(ans, token=token):
+                if ans == "Reopen":
+                    for t, record in doc_recovery.pending():
+                        if t == token:
+                            doc_recovery.restore(self, t, record)
+            wm_mod.msgbox(self, "Program Error",
+                      text + "\n\nIts unsaved changes were kept.",
+                      icon="error", buttons=("Reopen", "Later"), cb=answer)
+        else:
+            wm_mod.msgbox(self, "Program Error", text, icon="error")
+
+    def _guarded(self, win, where, fn, *args):
+        try:
+            return fn(*args)
+        except Exception:
+            self.window_fault(win, where)
+            return True
+
+    def _loop_fault(self):
+        import traceback
+        import doc_recovery
+        crash_report("event loop fault\n" + traceback.format_exc())
+        for win in list(self.wm.windows):
+            try:
+                doc_recovery.write(win)
+            except Exception:
+                pass
+        now = time.monotonic()
+        recent = [t for t in getattr(self, "_loop_faults", []) if now - t < 10.0]
+        recent.append(now)
+        self._loop_faults = recent
+        self.dirty = True
+        if len(recent) > 5:
+            raise
 
     def _first_run_help(self):
         """First launch: open the Help book so a new user (e.g. a fresh
@@ -1288,8 +1398,9 @@ class Desk:
             from apps.modelwizard import startup
             startup(self)
         except Exception as error:
-            wm.msgbox(self, "Model setup", str(error), icon="error")
+            wm_mod.msgbox(self, "Model setup", str(error), icon="error")
         self._first_run_password_nag()    # …and pop the change-password bubble
+        self._start_document_recovery()
         # The helper owns the D-Bus loop; the desktop retains all widget actions.
         if os.environ.get('DBUS_SESSION_BUS_ADDRESS') and os.isatty(term.fd):
             try:
@@ -1312,71 +1423,77 @@ class Desk:
         try:
             self.render()
             while self.running:
-                rlist = [term.fd] + list(self.fd_hooks)
-                r, _, _ = select.select(rlist, [], [], 0.25)
-                for fd in r:
-                    if fd == term.fd:
+                try:
+                    rlist = [term.fd] + list(self.fd_hooks)
+                    r, _, _ = select.select(rlist, [], [], 0.25)
+                    for fd in r:
+                        if fd == term.fd:
+                            continue
+                        cb = self.fd_hooks.get(fd)
+                        if cb:
+                            cb()
+                    if term.fd in r:
+                        for raw in term.read_input():
+                            if raw['kind'] == 'focus':
+                                self.frontend_focused = raw['focused']
+                                continue
+                            self._last_input = time.time()
+                            if self.saving:
+                                self._wake_saver()   # any input exits; swallow it
+                                continue
+                            if raw["kind"] == "key":
+                                ev = self._norm_key(raw)
+                                if ev:
+                                    self.dispatch_key(ev)
+                            elif raw["kind"] == "mouse":
+                                ev = self._norm_mouse(raw)
+                                if ev:
+                                    self.dispatch_mouse(ev)
+                            elif raw["kind"] == "paste":
+                                self.dispatch_paste(raw["text"])
+                    if resized[0]:
+                        resized[0] = False
+                        self.do_resize()
+                    now = time.time()
+                    self.taskbar.tick(now)
+                    self._hardware_tick(now)
+                    self._tick_animation(now)
+                    for hook in list(self.tick_hooks):
+                        hook(now)
+                    if now - last_blink >= 0.53:
+                        last_blink = now
+                        self.wm.blink()
+                    # idle screensaver: while engaged, step and blit each pass
+                    # (this doubles as the keepalive) and skip the desktop render
+                    self.maybe_start_saver(now)
+                    if self.saving:
+                        self.blit(self.saver.step(now - self._saver_last))
+                        self._saver_last = now
                         continue
-                    cb = self.fd_hooks.get(fd)
-                    if cb:
-                        cb()
-                if term.fd in r:
-                    for raw in term.read_input():
-                        if raw['kind'] == 'focus':
-                            self.frontend_focused = raw['focused']
-                            continue
-                        self._last_input = time.time()
-                        if self.saving:
-                            self._wake_saver()   # any input exits; swallow it
-                            continue
-                        if raw["kind"] == "key":
-                            ev = self._norm_key(raw)
-                            if ev:
-                                self.dispatch_key(ev)
-                        elif raw["kind"] == "mouse":
-                            ev = self._norm_mouse(raw)
-                            if ev:
-                                self.dispatch_mouse(ev)
-                        elif raw["kind"] == "paste":
-                            self.dispatch_paste(raw["text"])
-                if resized[0]:
-                    resized[0] = False
-                    self.do_resize()
-                now = time.time()
-                self.taskbar.tick(now)
-                self._hardware_tick(now)
-                self._tick_animation(now)
-                for hook in list(self.tick_hooks):
-                    hook(now)
-                if now - last_blink >= 0.53:
-                    last_blink = now
-                    self.wm.blink()
-                # idle screensaver: while engaged, step and blit each pass
-                # (this doubles as the keepalive) and skip the desktop render
-                self.maybe_start_saver(now)
-                if self.saving:
-                    self.blit(self.saver.step(now - self._saver_last))
-                    self._saver_last = now
-                    continue
-                # hover-dwell tooltip
-                if self.switcher is None and not self.menus.active:
-                    if self.mouse_pos != self._hover_pos:
-                        self._hover_pos = self.mouse_pos
-                        self._hover_since = now
-                        self._hide_tooltip()
-                    elif self._tooltip is None and now - self._hover_since >= 0.7:
-                        txt = self._tooltip_query(*self.mouse_pos)
-                        if txt:
-                            self._tooltip = txt
-                            self._tooltip_pos = self.mouse_pos
-                            self.dirty = True
-                # keepalive re-blits: kitty drops graphics sent while the
-                # window is still settling (tab bar / pane title bar appear
-                # right after startup and clear placements), and rendering is
-                # otherwise damage-driven — so repeat the frame aggressively
-                # for the first seconds and slowly forever after
-                self._keepalive(now, start)
-                self.render()
+                    # hover-dwell tooltip
+                    if self.switcher is None and not self.menus.active:
+                        if self.mouse_pos != self._hover_pos:
+                            self._hover_pos = self.mouse_pos
+                            self._hover_since = now
+                            self._hide_tooltip()
+                        elif self._tooltip is None and now - self._hover_since >= 0.7:
+                            txt = self._tooltip_query(*self.mouse_pos)
+                            if txt:
+                                self._tooltip = txt
+                                self._tooltip_pos = self.mouse_pos
+                                self.dirty = True
+                    # keepalive re-blits: kitty drops graphics sent while the
+                    # window is still settling (tab bar / pane title bar appear
+                    # right after startup and clear placements), and rendering is
+                    # otherwise damage-driven — so repeat the frame aggressively
+                    # for the first seconds and slowly forever after
+                    self._keepalive(now, start)
+                    self.render()
+                except Exception:
+                    # One bad pass (a window, a tick hook, a device callback)
+                    # must not end the desktop and every open document with
+                    # it; repeated faults still exit so the launcher restarts.
+                    self._loop_fault()
         except KeyboardInterrupt:
             pass
         finally:
