@@ -1775,6 +1775,8 @@ class Shell:
         if self._tab(["env", "KILIX_IN_OVERLAY=1", kilix, "desktop"],
                      T.PRODUCT_NAME):
             self.desk.quit()
+            return True
+        return False
 
     def _update_and_restart(self):
         kilix = os.path.join(KILIX_HOME, "kilix")

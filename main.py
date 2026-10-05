@@ -316,22 +316,48 @@ class Desk:
     #: Exit status that asks the launcher's supervisor for an immediate restart.
     RESTART_STATUS = 75
 
+    RESTORE_NOTICE = "restore-notice.txt"
+
     def restart_after_restore(self, message):
         """Reload restored settings: stop saving the replaced state, then restart.
 
-        Under the launcher's supervisor the desktop exits with RESTART_STATUS
-        and comes straight back in the same tab; otherwise it relaunches itself
-        in a new tab the way the Restart Desktop action does."""
+        The restart does not wait for the user: a dismissed or closed message
+        box would otherwise leave a desktop that silently drops every later
+        setting. The message is shown by the restarted desktop instead. Under
+        the launcher's supervisor the desktop exits with RESTART_STATUS and
+        comes straight back in the same tab; otherwise it relaunches itself in a
+        new tab, and if that fails it keeps running and says so."""
         self.shell.state_frozen = True
+        notice = storage.state_dir(self.RESTORE_NOTICE)
+        try:
+            with open(notice, "w", encoding="utf-8") as fh:
+                fh.write(message)
+        except OSError:
+            pass
+        if os.environ.get("KILIX_DESKTOP_SUPERVISED") == "1":
+            self.exit_status = self.RESTART_STATUS
+            self.quit()
+            return
+        if not self.shell._restart_desktop():
+            self.shell.state_frozen = False
+            try:
+                os.unlink(notice)
+            except OSError:
+                pass
+            wm_mod.msgbox(self, "Restore", message + "\n\nThe desktop could not restart "
+                          "itself; log out and back in to load the restored settings.",
+                          icon="warn")
 
-        def go(_answer=None):
-            if os.environ.get("KILIX_DESKTOP_SUPERVISED") == "1":
-                self.exit_status = self.RESTART_STATUS
-                self.quit()
-            else:
-                self.shell._restart_desktop()
-        wm_mod.msgbox(self, "Restore", message + "\n\nThe desktop restarts now.",
-                      icon="info", cb=go)
+    def _show_restore_notice(self):
+        notice = storage.state_dir(self.RESTORE_NOTICE)
+        try:
+            with open(notice, encoding="utf-8") as fh:
+                message = fh.read()
+            os.unlink(notice)
+        except OSError:
+            return
+        wm_mod.msgbox(self, "Restore", message + "\n\nThe restored settings are loaded.",
+                      icon="info")
 
     def add_clip_sink(self, sink):
         """Register a realm (an XPane's Xvfb, the host X) that should mirror
@@ -1227,6 +1253,7 @@ class Desk:
                 reason = ("The desktop restarted after it stopped unexpectedly.\n"
                           "These documents had unsaved changes:")
             doc_recovery.offer(self, reason=reason)
+            self._show_restore_notice()
         except Exception as error:
             wm_mod.msgbox(self, "Document Recovery", str(error), icon="error")
 

@@ -1,6 +1,7 @@
 """Crash recovery: zero-width selection draws, per-window fault isolation,
 unsaved-document checkpoints and their restore after a provider restart."""
 import harness as H
+from unittest import mock
 from apps.wordpad import WordPad
 
 
@@ -331,5 +332,81 @@ assert back.canvas.img.size == pt.canvas.img.size
 assert doc_recovery.app_label("paint") == "Paint"
 for token, _record in doc_recovery.pending():
     doc_recovery._forget(token)
+
+# ── F4: another live desktop's checkpoints are neither offered nor discarded ─
+import subprocess                                         # noqa: E402
+import sys as _sys                                        # noqa: E402
+for token, _record in doc_recovery.pending():
+    doc_recovery._forget(token)
+other = subprocess.Popen([_sys.executable, "-c", "import time; time.sleep(30)"])
+try:
+    live_owner = {"pid": other.pid, "start": doc_recovery._start_ticks(other.pid),
+                  "boot": doc_recovery._boot_id()}
+    np_live = notepad(d, os.path.join(tmp, "live.txt"), "open in the other desktop")
+    with mock.patch.object(doc_recovery, "_owner", lambda: live_owner):
+        tick(d)
+    assert doc_recovery.pending() == [], "a live desktop's document is not a leftover"
+    d7 = H.make_desk()
+    d7._start_document_recovery()
+    assert box(d7, "Document Recovery") is None
+finally:
+    other.kill()
+    other.wait()
+# the same PID now running a different process is not the owner
+reused = dict(live_owner, start=str(int(live_owner["start"] or 0) + 1))
+np_reuse = notepad(d, os.path.join(tmp, "reuse.txt"), "pid reused")
+other2 = subprocess.Popen([_sys.executable, "-c", "import time; time.sleep(30)"])
+try:
+    reused = {"pid": other2.pid, "start": str(int(doc_recovery._start_ticks(other2.pid)) + 1),
+              "boot": doc_recovery._boot_id()}
+    with mock.patch.object(doc_recovery, "_owner", lambda: reused):
+        tick(d)
+    texts = [r["snapshot"]["text"] for _t2, r in doc_recovery.pending()]
+    assert "pid reused" in texts, "a reused PID is not the original owner"
+finally:
+    other2.kill()
+    other2.wait()
+for _t2, r in doc_recovery.pending():
+    if r["snapshot"]["text"] == "pid reused":
+        doc_recovery._forget(_t2)
+d.wm.close(np_reuse)
+[(_t, record)] = doc_recovery.pending()            # its owner is gone: now it is one
+assert record["snapshot"]["text"] == "open in the other desktop"
+doc_recovery._forget(_t)
+d.wm.close(np_live)
+
+# ── F12: a clock that steps backwards keeps checkpointing ───────────────────
+np_clock = notepad(d, os.path.join(tmp, "clock.txt"), "before the step")
+doc_recovery.tick(d, 5000.0)
+np_clock.ta.set_text("after the step")
+doc_recovery.tick(d, 100.0)                         # wall clock went back
+[(_t, record)] = doc_recovery.pending()
+assert record["snapshot"]["text"] == "after the step"
+doc_recovery._forget(_t)
+d.wm.close(np_clock)
+
+# ── mm8: a failing window keeps its current text, not the last tick's ──────
+np_fault = notepad(d, os.path.join(tmp, "fault.txt"), "ticked text")
+tick(d)
+np_fault.ta.set_text("typed in the last second")
+np_fault.render = boom
+d.dirty = True
+d.render()
+press(box(d, "Program Error"), "Later")
+[(_t, record)] = doc_recovery.pending()
+assert record["snapshot"]["text"] == "typed in the last second"
+doc_recovery._forget(_t)
+
+# ── C5: the offer says when, and warns when the file was saved since ────────
+import time as _time                                       # noqa: E402
+newer = os.path.join(tmp, "newer.txt")
+with open(newer, "w") as fh:
+    fh.write("saved later\n")
+line = doc_recovery.describe({"app": "notepad", "name": "newer.txt", "path": newer,
+                              "saved_at": _time.time() - 3600})
+assert "unsaved at" in line and "saved since" in line, line
+line = doc_recovery.describe({"app": "notepad", "name": "newer.txt", "path": newer,
+                              "saved_at": _time.time() + 3600})
+assert "saved since" not in line, line
 
 print("ok")

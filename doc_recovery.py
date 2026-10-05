@@ -35,6 +35,40 @@ def _store(token):
                                    max_payload=_MAX_PAYLOAD)
 
 
+def _start_ticks(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return fh.read().rsplit(") ", 1)[1].split()[19]
+    except (OSError, IndexError):
+        return None
+
+
+def _boot_id():
+    try:
+        with open("/proc/sys/kernel/random/boot_id") as fh:
+            return fh.read().strip()
+    except OSError:
+        return None
+
+
+def _owner():
+    pid = os.getpid()
+    return {"pid": pid, "start": _start_ticks(pid), "boot": _boot_id()}
+
+
+def _owned_by_another_live_desktop(record):
+    """A second running desktop must neither offer nor discard the documents
+    another live desktop is still editing."""
+    owner = record.get("owner")
+    if not isinstance(owner, dict) or owner.get("pid") == os.getpid():
+        return False
+    pid = owner.get("pid")
+    if not isinstance(pid, int) or owner.get("boot") != _boot_id() or owner.get("boot") is None:
+        return False
+    start = _start_ticks(pid)
+    return start is not None and start == owner.get("start")
+
+
 def _token(win):
     token = getattr(win, "_recovery_token", None)
     if token is None:
@@ -65,7 +99,8 @@ def write(win):
     if body == getattr(win, "_recovery_written", None):
         return True
     record = {"app": win.recovery_app, "name": _name(win),
-              "path": getattr(win, "path", None), "saved_at": time.time()}
+              "path": getattr(win, "path", None), "saved_at": time.time(),
+              "owner": _owner()}
     if len(body) > MAX_DOCUMENT:
         record["too_large"] = True
     else:
@@ -96,7 +131,8 @@ def clear(win):
 
 def tick(desk, now):
     """Desk tick hook: checkpoint modified windows, drop records of clean ones."""
-    if now - getattr(desk, "_recovery_last", 0.0) < INTERVAL:
+    # A clock that steps backwards must not stop checkpointing for good.
+    if 0 <= now - getattr(desk, "_recovery_last", 0.0) < INTERVAL:
         return
     desk._recovery_last = now
     for win in list(desk.wm.windows):
@@ -126,7 +162,7 @@ def pending():
             continue
         with _store(token) as store:
             record = store.load_dict()
-        if record.get("app"):
+        if record.get("app") and not _owned_by_another_live_desktop(record):
             out.append((token, record))
     return out
 
@@ -167,22 +203,34 @@ def app_label(app):
     return _APP_LABELS.get(app, app.title())
 
 
+def describe(record):
+    """One line naming a pending document, when it was unsaved, and any risk."""
+    label = f"{record.get('name', 'Untitled')} ({app_label(record['app'])})"
+    saved = record.get("saved_at")
+    if isinstance(saved, (int, float)):
+        label += time.strftime(", unsaved at %H:%M", time.localtime(saved))
+    path = record.get("path")
+    try:
+        if path and isinstance(saved, (int, float)) and os.path.getmtime(path) > saved:
+            label += " - the file was saved since; restoring could replace newer work"
+    except OSError:
+        pass
+    if record.get("too_large"):
+        label += " - too large to keep, changes lost"
+    return label
+
+
 def offer(desk, items=None, reason=None):
     """Ask the user about pending checkpoints; nothing happens without an answer."""
     import wm
     items = pending() if items is None else items
     if not items:
         return
-    names = []
-    for _token_, record in items:
-        label = f"{record.get('name', 'Untitled')} ({app_label(record['app'])})"
-        if record.get("too_large"):
-            label += " - too large to keep, changes lost"
-        names.append("  " + label)
+    names = ["  " + describe(record) for _token_, record in items]
     restorable = [(t, r) for t, r in items if not r.get("too_large")]
     lost_only = not restorable
-    text = (reason or "Unsaved documents were kept when a program stopped "
-            "unexpectedly:") + "\n\n" + "\n".join(names)
+    text = (reason or "These documents had unsaved changes when they "
+            "were last open:") + "\n\n" + "\n".join(names)
     if lost_only:
         wm.msgbox(desk, "Document Recovery", text, icon="warn",
                   cb=lambda _ans: [_forget(t) for t, _r in items])
