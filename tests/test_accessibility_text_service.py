@@ -2,6 +2,7 @@
 import itertools
 import math
 import socket
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -50,6 +51,8 @@ class TextServiceTests(unittest.TestCase):
         self.controller.desk, self.controller.tree = self.desk, Tree(self.desk)
         self.controller.channel = Channel(parent)
         self.controller.closed, self.controller.last = False, None
+        self.controller._geometry_wake = threading.Event()
+        self.controller._geometry_wanted_until = 0.0
         self.data = dict(version=1, pane_id=9, render_rect=[20, 60, 820, 660],
                          grid=[80, 30], cell_size=[10, 20], framebuffer_size=[1600, 1200],
                          window_size=[800, 600], screen_origin=[-800, 25],
@@ -59,6 +62,7 @@ class TextServiceTests(unittest.TestCase):
         self.service.nodes, self.service.registrations = {}, {}
         self.service.registry_parent, self.service.embedded = ('', bridge.NULL), True
         self.service.viewport, self.service.viewport_observed = None, 0
+        self.service.geometry_wanted_sent = float('-inf')
         self.service.canvas_size = self.service.canvas_grid = None
         self.service.pending, self.service.counter = {}, itertools.count(1)
         self.service.channel = Channel(child)

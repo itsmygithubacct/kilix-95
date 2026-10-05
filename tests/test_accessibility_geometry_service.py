@@ -40,6 +40,9 @@ class GeometryServiceTests(unittest.TestCase):
         self.service.viewport = None
         self.service.viewport_observed = 0
         self.service.canvas_size = self.service.canvas_grid = None
+        self.wanted = []
+        self.service.channel = type('Channel', (), {'queue': staticmethod(self.wanted.append)})()
+        self.service.geometry_wanted_sent = float('-inf')
         self.data = dict(version=1, pane_id=9, render_rect=[20, 60, 820, 660],
                          grid=[80, 30], cell_size=[10, 20], framebuffer_size=[1600, 1200],
                          window_size=[800, 600], screen_origin=[-800, 25],
@@ -59,6 +62,14 @@ class GeometryServiceTests(unittest.TestCase):
 
     def call(self, method, args, key='button'):
         return self.service.dispatch('Component', method, self.service.nodes[key], args, None)
+
+    def test_screen_queries_ask_the_frontend_to_observe_geometry_at_most_once_a_second(self):
+        self.call('GetExtents', (0,))
+        self.call('GetPosition', (0,))
+        self.call('Contains', (-780, 70, 0))
+        self.assertEqual(self.wanted, [{'type': 'geometry-wanted'}])
+        self.call('GetExtents', (1,))  # window-relative coordinates need no screen geometry
+        self.assertEqual(len(self.wanted), 1)
 
     def test_physical_bounds_and_hit_testing_share_the_native_transform(self):
         self.assertEqual(self.call('GetExtents', (0,)), ((-785, 65, 50, 15),))

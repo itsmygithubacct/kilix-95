@@ -28,6 +28,7 @@ def clean_name(text):
 
 GEOMETRY_INTERVAL = .25
 GEOMETRY_MAX_BACKOFF = 30.0
+GEOMETRY_WANTED_SECONDS = 30.0
 
 class Tree:
     def __init__(self, desk):
@@ -547,6 +548,8 @@ class Controller:
         self.closed = False
         self._geometry = None
         self._geometry_stop = threading.Event()
+        self._geometry_wake = threading.Event()
+        self._geometry_wanted_until = 0.0
         self._geometry_thread = None
         parent, child = socket.socketpair()
         try:
@@ -577,6 +580,13 @@ class Controller:
             return
         delay = GEOMETRY_INTERVAL
         while not self._geometry_stop.is_set():
+            if time.monotonic() >= self._geometry_wanted_until:
+                # Nobody is asking for screen coordinates: spawn nothing.
+                self._geometry = None
+                self._geometry_wake.clear()
+                if time.monotonic() >= self._geometry_wanted_until:
+                    self._geometry_wake.wait(1)
+                    continue
             try:
                 value, unused = geometry.current(timeout=.4)
                 self._geometry = (time.monotonic(), value)
@@ -592,6 +602,10 @@ class Controller:
     def read(self):
         try:
             for message in self.channel.receive():
+                if message.get('type') == 'geometry-wanted':
+                    self._geometry_wanted_until = time.monotonic() + GEOMETRY_WANTED_SECONDS
+                    self._geometry_wake.set()
+                    continue
                 if message.get('type') != 'request':
                     continue
                 accepted = False

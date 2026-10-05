@@ -118,10 +118,11 @@ class Service:
         self.embedded = False
         self.viewport = None
         self.viewport_observed = 0
+        self.geometry_wanted_sent = float('-inf')
         self.canvas_size = self.canvas_grid = None
         self.loop = GLib.MainLoop()
         # Pleb's original physical session bus is preserved for private apps.
-        env_address = os.environ.get('PLEB_DESKTOP_SESSION_BUS_ADDRESS')
+        env_address = os.environ.get('PLEB_DESKTOP_BUS_ADDRESS')
         flags = Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION
         session = (Gio.DBusConnection.new_for_address_sync(env_address, flags, None, None)
                    if env_address else Gio.bus_get_sync(Gio.BusType.SESSION, None))
@@ -324,7 +325,18 @@ class Service:
         self.channel.queue({'type': 'request', 'request': serial, 'node': node['id'],
                             'kind': kind, 'args': list(args), 'deadline': time.monotonic() + 0.9})
 
+    def want_geometry(self):
+        # Native pane geometry costs a remote-control round trip, so the
+        # frontend observes it only while screen coordinates are being asked
+        # for. The first screen query after an idle spell is refused until a
+        # fresh observation arrives, as for any expired placement.
+        now = time.monotonic()
+        if now - self.geometry_wanted_sent >= 1:
+            self.geometry_wanted_sent = now
+            self.channel.queue({'type': 'geometry-wanted'})
+
     def screen_rect(self, rect):
+        self.want_geometry()
         age = time.monotonic() - self.viewport_observed
         if self.viewport is None or not 0 <= age < .8:
             raise NotImplementedError()
@@ -334,6 +346,7 @@ class Service:
             raise NotImplementedError() from None
 
     def screen_point(self, x, y):
+        self.want_geometry()
         age = time.monotonic() - self.viewport_observed
         if self.viewport is None or not 0 <= age < .8:
             raise NotImplementedError()
