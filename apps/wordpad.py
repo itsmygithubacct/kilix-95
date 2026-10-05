@@ -623,9 +623,11 @@ class RichTextArea(W.Widget):
         elif k == "Tab":
             self.insert("    ")
         elif k == "Backspace":
-            self._backspace()
+            if self._backspace():       # an edit: re-lay out, mark modified
+                self._edited()
         elif k == "Delete":
-            self._delete()
+            if self._delete():
+                self._edited()
         elif ev.text and not ev.ctrl and not ev.alt:
             self.insert(ev.text)
         else:

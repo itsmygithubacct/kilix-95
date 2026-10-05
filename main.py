@@ -200,6 +200,34 @@ class DeskTerm(kilix_term.Term):
             termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
 
 
+CRASH_LOG_LIMIT = 1024 * 1024
+
+
+def crash_report(text):
+    """Keep a fault's traceback in the provider's private crash log.
+
+    stderr is the terminal the desktop itself draws into, so a report written
+    there would be painted over the desktop. The log keeps its newest megabyte."""
+    path = storage.state_dir("crash.log")
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        entry = ("=== %s pid %d\n%s\n" % (stamp, os.getpid(), text)).encode(
+            "utf-8", "replace")
+        try:
+            with open(path, "rb") as fh:
+                old = fh.read()
+        except OSError:
+            old = b""
+        data = (old + entry)[-CRASH_LOG_LIMIT:]
+        fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass
+
+
 class Desk:
     def __init__(self, term=None, size=None, draw_cursor=False):
         self.term = term
@@ -1186,8 +1214,8 @@ class Desk:
         Its unsaved document is checkpointed first and kept for restore."""
         import traceback
         import doc_recovery
-        sys.stderr.write("kilix desktop: %s failed during %s; closing it\n%s"
-                         % (type(win).__name__, where, traceback.format_exc()))
+        crash_report("%s failed during %s; it was closed\n%s"
+                     % (type(win).__name__, where, traceback.format_exc()))
         kept = False
         try:
             kept = doc_recovery.write(win)
@@ -1228,7 +1256,7 @@ class Desk:
     def _loop_fault(self):
         import traceback
         import doc_recovery
-        sys.stderr.write("kilix desktop: event loop fault\n" + traceback.format_exc())
+        crash_report("event loop fault\n" + traceback.format_exc())
         for win in list(self.wm.windows):
             try:
                 doc_recovery.write(win)

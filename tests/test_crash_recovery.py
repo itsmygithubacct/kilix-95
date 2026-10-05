@@ -33,6 +33,32 @@ w2.rta.caret = (2, 3)                     # spans the empty middle paragraph
 w2.invalidate()
 w2.render()
 
+# ── D1b: deleting a multi-paragraph selection re-lays out before drawing ────
+# Backspace/Delete edited the paragraphs without bumping the layout version,
+# so the next draw walked cached lines for paragraphs that no longer existed
+# (IndexError) and a delete-only edit never marked the document modified.
+w3 = _wordpad(d, "WordPad saved line\nsecond\nthird")
+d.wm.activate(w3)
+w3.set_focus(w3.rta)
+w3.render()                               # lay out three paragraphs
+H.key(d, "a", ctrl=True)
+H.key(d, "Backspace", text="")
+assert len(w3.rta.paras) == 1, w3.rta.paras
+w3.invalidate()
+w3.render()                               # must not raise
+assert w3.modified, "deleting text must mark the document modified"
+
+w4 = _wordpad(d, "one\ntwo")
+d.wm.activate(w4)
+w4.set_focus(w4.rta)
+w4.render()
+w4.rta.caret, w4.rta.anchor = (0, 3), None
+H.key(d, "Delete", text="")               # joins the paragraphs
+assert len(w4.rta.paras) == 1
+w4.invalidate()
+w4.render()
+assert w4.modified, "Delete must mark the document modified"
+
 # ── D1: a focused text field whose selection lies past its visible width ────
 import widgets as W                       # noqa: E402
 import wm                                 # noqa: E402
@@ -118,11 +144,22 @@ class Broken(wm.Window):
         return super().on_mouse(ev)
 
 
+import contextlib                         # noqa: E402
+import io                                 # noqa: E402
+import storage                            # noqa: E402
+
 bad = Broken(d)
 d.wm.add(bad)
 bad.fail_draw = True
 d.dirty = True
-d.render()                                # must not raise
+captured = io.StringIO()
+with contextlib.redirect_stderr(captured):
+    d.render()                            # must not raise
+assert captured.getvalue() == "", "a fault report must not be painted over the desktop"
+with open(storage.state_dir("crash.log")) as fh:
+    log = fh.read()
+assert "Broken failed during drawing" in log and "ValueError: draw fault" in log, log
+assert oct(os.stat(storage.state_dir("crash.log")).st_mode & 0o777) == "0o600"
 assert bad not in d.wm.windows
 assert survivor in d.wm.windows
 err = box(d, "Program Error")
