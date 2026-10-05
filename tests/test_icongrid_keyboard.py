@@ -1,4 +1,5 @@
 """Keyboard access to desktop launchers and files, including offscreen rows."""
+import harness as H          # noqa: sets up sys.path for the imports below
 import widgets as W
 import theme as T
 from main import Desk
