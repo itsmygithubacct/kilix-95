@@ -102,4 +102,46 @@ w4 = H.find_window(d4, "BackupWin")
 w4.confirm_restore(bad)
 assert box(d4, "Restore") is not None and not getattr(d4.shell, "state_frozen", False)
 
+# A restore that only re-creates deleted files replaces nothing, keeps no safety
+# copy, and still restarts with an honest message (it used to crash on None).
+import wm                                                     # noqa: E402
+os.environ["KILIX_DESKTOP_SUPERVISED"] = "1"
+d5 = H.make_desk()
+apps.open(d5, "backup")
+w5 = H.find_window(d5, "BackupWin")
+gone = os.path.join(d5.shell.dir, "gone.txt")
+with open(gone, "w") as fh:
+    fh.write("deleted later\n")
+only_new = w5.backend.create()
+os.unlink(gone)
+said = []
+d5.restart_after_restore = said.append
+w5.restore(only_new)
+assert said and "No existing file was replaced" in said[0], said
+assert "log out" not in said[0], "nothing session-wide was restored"
+with open(gone) as fh:
+    assert fh.read() == "deleted later\n"
+
+# The confirmation lists the settings a restore changes and flags the ones that
+# decide what the desktop runs; kilix.env needs a new session, and says so.
+kilix_env = os.path.join(os.environ["KILIX_CONFIG_HOME"], "kilix.env")
+os.makedirs(os.path.dirname(kilix_env), exist_ok=True)
+with open(kilix_env, "w") as fh:
+    fh.write("KILIX95_DIR=/opt/elsewhere\n")
+from_elsewhere = w5.backend.create()
+assert "kilix/kilix.env" in w5.backend.read(from_elsewhere)[1]
+with open(kilix_env, "w") as fh:
+    fh.write("KILIX95_DIR=/opt/mine\n")
+texts = []
+real_msgbox = wm.msgbox
+with mock.patch.object(wm, "msgbox", lambda desk, title, text, **kw: texts.append(text)):
+    w5.confirm_restore(from_elsewhere)
+assert "Settings it changes" in texts[-1], texts
+assert "KILIX95_DIR = /opt/elsewhere (decides what runs!)" in texts[-1], texts[-1]
+assert "log out and back in" in texts[-1], texts[-1]
+said.clear()
+w5.restore(from_elsewhere)
+assert "Previous files:" in said[0] and "kilix.env was restored too" in said[0], said
+os.environ.pop("KILIX_DESKTOP_SUPERVISED", None)
+
 print("ok")

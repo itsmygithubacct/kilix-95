@@ -13,6 +13,8 @@ import widgets as W
 import wm
 
 _FILTERS = [("Kilix backups", "*.tar.gz"), ("All Files", "*.*")]
+_SESSION_FILE = "kilix/kilix.env"     # read once per Kilix session, not per desktop
+_SHOWN_CHANGES = 6
 
 
 def _backend():
@@ -79,11 +81,35 @@ class BackupWin(wm.Window):
         def answer(ans):
             if ans == "Restore":
                 self.restore(archive)
-        wm.msgbox(self.desk, "Restore",
-                  f"Restore {new} new and {changed} changed file(s)?\n"
-                  "Your current files are backed up first, and the desktop "
-                  "restarts to load the restored settings.",
+        text = (f"Restore {new} new and {changed} changed file(s)?\n"
+                "Your current files are backed up first, and the desktop "
+                "restarts to load the restored settings.")
+        text += self._describe_changes(archive)
+        if any(name == _SESSION_FILE and action != "same" for name, _d, action in rows):
+            text += ("\n\nkilix.env changes take effect only after you log out "
+                     "and back in.")
+        wm.msgbox(self.desk, "Restore", text,
                   icon="warn", buttons=("Restore", "Cancel"), cb=answer, default=1)
+
+    def _describe_changes(self, archive):
+        """The settings this restore changes, with launch-deciding keys flagged:
+        a backup file may come from somewhere else."""
+        if not hasattr(self.backend, "changes"):
+            return ""
+        try:
+            rows = self.backend.changes(archive)
+        except (OSError, self.backend.BackupError):
+            return ""
+        if not rows:
+            return ""
+        flagged = getattr(self.backend, "launch_key", lambda key: False)
+        lines = []
+        for name, key, old, new in rows[:_SHOWN_CHANGES]:
+            mark = " (decides what runs!)" if name == _SESSION_FILE and flagged(key) else ""
+            lines.append(f"{os.path.basename(name)}: {key} = {new or '(removed)'}{mark}")
+        if len(rows) > _SHOWN_CHANGES:
+            lines.append(f"... and {len(rows) - _SHOWN_CHANGES} more setting(s)")
+        return "\n\nSettings it changes:\n" + "\n".join(lines)
 
     def restore(self, archive):
         try:
@@ -91,6 +117,13 @@ class BackupWin(wm.Window):
         except (OSError, self.backend.BackupError) as error:
             wm.msgbox(self.desk, "Restore", f"The restore failed:\n{error}", icon="error")
             return
-        self.desk.restart_after_restore(
-            f"Restored {result['written']} file(s).\n"
-            f"Previous files: {os.path.basename(result['safety'])}")
+        message = f"Restored {result['written']} file(s)."
+        if result.get("safety"):
+            message += f"\nPrevious files: {os.path.basename(result['safety'])}"
+        else:
+            message += "\nNo existing file was replaced."
+        message += "\n\nThe restored desktop settings are loaded."
+        if _SESSION_FILE in result.get("names", ()):
+            message += ("\nkilix.env was restored too: log out and back in for it "
+                        "to take effect.")
+        self.desk.restart_after_restore(message)

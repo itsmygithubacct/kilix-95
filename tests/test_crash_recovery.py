@@ -366,8 +366,22 @@ try:
 finally:
     other2.kill()
     other2.wait()
+# nm2: a live process with the owner's PID and start time, but from an earlier
+# boot, is not the owner: after a reboot the record is offered, not hidden.
+other3 = subprocess.Popen([_sys.executable, "-c", "import time; time.sleep(30)"])
+try:
+    old_boot = {"pid": other3.pid, "start": doc_recovery._start_ticks(other3.pid),
+                "boot": "0" * 8 + "-boot-before-the-reboot"}
+    np_reuse.ta.set_text("written before a reboot")
+    with mock.patch.object(doc_recovery, "_owner", lambda: old_boot):
+        tick(d)
+    texts = [r["snapshot"]["text"] for _t2, r in doc_recovery.pending()]
+    assert "written before a reboot" in texts, "an earlier boot's owner is gone"
+finally:
+    other3.kill()
+    other3.wait()
 for _t2, r in doc_recovery.pending():
-    if r["snapshot"]["text"] == "pid reused":
+    if r["snapshot"]["text"] in ("pid reused", "written before a reboot"):
         doc_recovery._forget(_t2)
 d.wm.close(np_reuse)
 [(_t, record)] = doc_recovery.pending()            # its owner is gone: now it is one
@@ -408,5 +422,17 @@ assert "unsaved at" in line and "saved since" in line, line
 line = doc_recovery.describe({"app": "notepad", "name": "newer.txt", "path": newer,
                               "saved_at": _time.time() + 3600})
 assert "saved since" not in line, line
+# ... and restoring it opens an untitled copy, so a save cannot replace the newer file.
+before_restore = list(d.wm.windows)
+assert doc_recovery.restore(d, "c5-token", {
+    "app": "notepad", "name": "newer.txt", "path": newer,
+    "saved_at": _time.time() - 3600, "snapshot": {"text": "older unsaved text"}})
+[copy] = [w for w in d.wm.windows if w not in before_restore]
+assert copy.path is None and copy.modified, copy.path
+assert copy.ta.text() == "older unsaved text"
+with open(newer) as fh:
+    assert fh.read() == "saved later\n"
+doc_recovery.clear(copy)
+d.wm.close(copy)
 
 print("ok")

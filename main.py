@@ -356,8 +356,7 @@ class Desk:
             os.unlink(notice)
         except OSError:
             return
-        wm_mod.msgbox(self, "Restore", message + "\n\nThe restored settings are loaded.",
-                      icon="info")
+        wm_mod.msgbox(self, "Restore", message, icon="info")
 
     def add_clip_sink(self, sink):
         """Register a realm (an XPane's Xvfb, the host X) that should mirror

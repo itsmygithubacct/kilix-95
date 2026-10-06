@@ -176,11 +176,26 @@ def _forget(token):
                 pass
 
 
+def _saved_since(record):
+    """Whether the document's file was saved after this checkpoint was taken."""
+    path, saved = record.get("path"), record.get("saved_at")
+    try:
+        return bool(path) and isinstance(saved, (int, float)) and \
+            os.path.getmtime(path) > saved
+    except OSError:
+        return False
+
+
 def restore(desk, token, record):
-    """Reopen one checkpoint as an unsaved document; True on success."""
+    """Reopen one checkpoint as an unsaved document; True on success.
+
+    If the file was saved since, the checkpoint reopens as an untitled copy, so
+    saving it cannot silently replace the newer work."""
     import apps
     if record.get("too_large") or "snapshot" not in record:
         return False
+    if _saved_since(record):
+        record = dict(record, path=None)
     before = list(desk.wm.windows)
     apps.open(desk, record["app"], None)
     new = [w for w in desk.wm.windows if w not in before]
@@ -209,12 +224,8 @@ def describe(record):
     saved = record.get("saved_at")
     if isinstance(saved, (int, float)):
         label += time.strftime(", unsaved at %H:%M", time.localtime(saved))
-    path = record.get("path")
-    try:
-        if path and isinstance(saved, (int, float)) and os.path.getmtime(path) > saved:
-            label += " - the file was saved since; restoring could replace newer work"
-    except OSError:
-        pass
+    if _saved_since(record):
+        label += " - the file was saved since; it reopens as an untitled copy"
     if record.get("too_large"):
         label += " - too large to keep, changes lost"
     return label
