@@ -161,7 +161,8 @@ class Checkbox(Widget):
     focusable = True
 
     def __init__(self, x, y, text, checked=False, cb=None):
-        super().__init__(x, y, 17 + T.text_w(T.FONT, text), 14)
+        # two extra pixels on the right leave room for the focus marquee
+        super().__init__(x, y, 19 + T.text_w(T.FONT, text), 14)
         self.text, self.checked, self.cb = text, checked, cb
 
     def draw(self, d, img):
@@ -178,6 +179,10 @@ class Checkbox(Widget):
                        fill=T.TEXT)
         d.text((self.x + 17, self.y + 1), self.text, font=T.FONT,
                fill=T.TEXT if self.enabled else T.DISABLED)
+        # Win95 draws the keyboard-focus marquee around a checkbox's label.
+        if self.enabled and self.window and self.window.focus is self:
+            T.focus_rect(d, self.x + 15, self.y, self.x + self.w - 1,
+                         self.y + self.h - 1)
 
     def on_mouse(self, ev):
         if ev.press and ev.btn == 1 and self.enabled:
