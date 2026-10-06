@@ -134,14 +134,16 @@ module.Inotify=native
 
 # Healthy notifications need no periodic rescans of every open folder (network
 # mounts included); an incomplete watch set still falls back to them.
-def count_scans(backend_type, seconds=1.2):
+def count_scans(backend_type, seconds=1.2, table=None, slow_interval=60):
     module.Inotify=backend_type
     try:
         with H.desktop_dir() as dd:
+            if table is not None:
+                module.mount_table=lambda: table(os.path.realpath(dd))
             d=H.make_desk();calls=[]
             def counting(path):
                 calls.append(time.monotonic());return scan(path)
-            monitor=DirectoryMonitor(d,scanner=counting,interval=.2)
+            monitor=DirectoryMonitor(d,scanner=counting,interval=.2,slow_interval=slow_interval)
             try:
                 wait(monitor,lambda:bool(calls),'Initial snapshot was not taken')
                 start=time.monotonic()
@@ -151,12 +153,59 @@ def count_scans(backend_type, seconds=1.2):
                 wait(monitor,lambda:'after.txt' in labels(d.shell.grid),'Change after a quiet period was missed')
                 return len(quiet)
             finally: close(monitor)
-    finally: module.Inotify=native
+    finally: module.Inotify=native;module.mount_table=native_table
+native_table=module.mount_table
 class Incomplete(native):
     def __init__(self,paths):
         super().__init__(paths);self.complete=False
 assert count_scans(native)==0, 'Healthy inotify still rescanned periodically'
 assert count_scans(Incomplete)>=3, 'An incomplete watch set lost its periodic fallback'
+
+# Review D S2: inotify watches succeed on NFS, SMB and FUSE mounts but never
+# report other clients' changes, so those views keep a slow periodic rescan.
+# A local view stays event-driven even with the same short slow interval.
+local=lambda view:[('/','ext4')]
+for remote in ('nfs4','cifs','smb3','fuse.sshfs','sshfs'):
+    table=lambda view,remote=remote:[('/','ext4'),(view,remote)]
+    assert count_scans(native,table=table,slow_interval=.2)>=3, remote+' view was not rescanned'
+assert count_scans(native,table=local,slow_interval=.2)==0, 'A local view was rescanned periodically'
+with tempfile.TemporaryDirectory() as tmp:
+    mountinfo=Path(tmp)/'mountinfo'
+    mountinfo.write_text(
+        '22 1 8:2 / / rw,relatime shared:1 - ext4 /dev/sda2 rw\n'
+        '30 22 0:40 / /mnt/my\\040share rw - cifs //srv/share rw\n'
+        '31 22 0:41 / /srv/remote rw shared:9 master:2 - fuse.sshfs u@h: rw\n'
+        '32 22 0:42 / /srv/remote/over rw - tmpfs tmpfs rw\n'
+        '33 22 0:43 / /mnt/disk rw - fuseblk /dev/sdb1 rw\n')
+    rows=module.mount_table(str(mountinfo))
+    assert ('/mnt/my share','cifs') in rows, rows
+    kinds={path:module.filesystem_type(path,rows) for path in
+           ('/home','/mnt/my share/docs','/mnt/my','/srv/remote/a','/srv/remote/over/b','/mnt/disk/c')}
+    assert kinds=={'/home':'ext4','/mnt/my share/docs':'cifs','/mnt/my':'ext4',
+                   '/srv/remote/a':'fuse.sshfs','/srv/remote/over/b':'tmpfs',
+                   '/mnt/disk/c':'fuseblk'}, kinds
+    assert [module.remote_filesystem(kinds[p]) for p in sorted(kinds)]==[
+        False,False,False,True,True,False], sorted(kinds)
+
+# Renaming a grandparent moves no watched inode: the ancestor watches notice
+# it (and its return) without any periodic scan.
+with H.desktop_dir() as dd, tempfile.TemporaryDirectory() as outside:
+    base=Path(outside);view=base/'a'/'b'/'c';view.mkdir(parents=True)
+    (view/'deep.txt').write_text('deep')
+    d=H.make_desk();win=FileWindow(d,str(view));d.wm.add(win)
+    monitor=DirectoryMonitor(d,interval=60,slow_interval=60)
+    try:
+        wait(monitor,lambda:'deep.txt' in labels(win.grid),'Initial deep view was not listed')
+        # Let the start-up snapshots settle so no scan is already queued.
+        quiet=time.monotonic()+.6
+        while time.monotonic()<quiet:
+            pump(monitor);time.sleep(.01)
+            if monitor.deadlines or monitor.busy: quiet=time.monotonic()+.6
+        (base/'a').rename(base/'moved')
+        wait(monitor,lambda:win.listing_error is not None and not win.grid.items,'A renamed grandparent left the view stale')
+        (base/'moved').rename(base/'a')
+        wait(monitor,lambda:'deep.txt' in labels(win.grid) and win.listing_error is None,'A restored grandparent did not rearm the view')
+    finally: close(monitor)
 
 # A queue overflow must invalidate every displayed folder and rearm watches.
 reader,writer=os.pipe2(os.O_NONBLOCK|os.O_CLOEXEC)

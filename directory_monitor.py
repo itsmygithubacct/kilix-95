@@ -1,6 +1,7 @@
 """Watch displayed folders; scan off-thread and commit views on the UI thread."""
 import ctypes
 import os
+import re
 import select
 import struct
 import threading
@@ -10,7 +11,46 @@ from directory_listing import scan
 
 EVENT = struct.Struct('iIII')
 MASK = 0x00000fce  # attrib, modify/close-write, moves, create/delete, self changes
+ANCESTOR = 0x00000fc0  # an entry moved, created or deleted; self moves/deletes
 RESET = 0x0000ec00  # self move/delete, unmount, overflow, ignored
+ONLYDIR, MASK_ADD = 0x01000000, 0x20000000
+
+# inotify reports only changes made through this kernel. On these filesystems
+# another client (the server, another machine, a FUSE daemon) changes entries
+# without any event, although every watch is added successfully.
+REMOTE_TYPES = frozenset({
+    'nfs', 'nfs4', 'cifs', 'smb3', 'smbfs', 'ncpfs', 'afs', 'coda', 'ceph',
+    'glusterfs', 'lustre', 'gfs2', 'ocfs2', 'davfs', '9p', 'virtiofs', 'sshfs',
+    'fuse'})
+
+
+def remote_filesystem(fstype):
+    return fstype in REMOTE_TYPES or fstype.startswith('fuse.')
+
+
+def mount_table(path='/proc/self/mountinfo'):
+    """(mount point, filesystem type) rows, in mount order."""
+    rows = []
+    with open(path, 'rb') as stream:
+        for line in stream:
+            fields = line.split()
+            try:
+                separator = fields.index(b'-', 6)
+                point, fstype = fields[4], fields[separator+1]
+            except (ValueError, IndexError):
+                continue
+            point = re.sub(rb'\\([0-7]{3})', lambda m: bytes([int(m.group(1), 8)]), point)
+            rows.append((os.fsdecode(point), os.fsdecode(fstype)))
+    return rows
+
+
+def filesystem_type(path, table):
+    """The type of the filesystem the last (topmost) covering mount provides."""
+    path, found, length = os.path.realpath(path), '', -1
+    for point, fstype in table:
+        if (path == point or path.startswith(point.rstrip('/') + '/')) and len(point) >= length:
+            found, length = fstype, len(point)
+    return found
 
 
 class Inotify:
@@ -26,12 +66,39 @@ class Inotify:
         # Complete only when every view and its parent is watched; otherwise
         # periodic snapshots must cover what notifications cannot.
         self.complete = True
-        for path in paths | {os.path.dirname(p) for p in paths}:
-            wd = add(self.fd, os.fsencode(path), MASK | 0x01000000)  # IN_ONLYDIR
+        near = paths | {os.path.dirname(p) for p in paths}
+        for path in near:
+            wd = add(self.fd, os.fsencode(path), MASK | ONLYDIR | MASK_ADD)
             if wd >= 0:
                 self.paths.setdefault(wd, set()).add(path)
             else:
                 self.complete = False
+        # Renaming or replacing a directory further up moves no watched inode,
+        # so watch every ancestor for its next path component. A view whose
+        # ancestors cannot all be watched, or that lives on a filesystem where
+        # other clients' changes are never reported, is rescanned slowly.
+        self.polled = set()
+        ancestors = {}
+        for path in paths:
+            ancestor = os.path.dirname(path)
+            while os.path.dirname(ancestor) != ancestor:
+                ancestor = os.path.dirname(ancestor)
+                if ancestor not in near:
+                    ancestors.setdefault(ancestor, set()).add(path)
+        for ancestor, below in ancestors.items():
+            wd = add(self.fd, os.fsencode(ancestor), ANCESTOR | ONLYDIR | MASK_ADD)
+            if wd >= 0:
+                self.paths.setdefault(wd, set()).add(ancestor)
+            else:
+                self.polled |= below
+        try:
+            table = mount_table()
+        except OSError:
+            self.polled |= set(paths)
+        else:
+            self.polled |= {path for path in paths if any(
+                remote_filesystem(filesystem_type(candidate, table))
+                for candidate in (path, os.path.dirname(path)))}
 
     def changes(self, targets):
         changed, reset = set(), False
@@ -51,10 +118,17 @@ class Inotify:
             for path in self.paths.get(wd, ()):
                 if path in targets:
                     changed.add(path)
+                below = path.rstrip('/') + '/'
                 for target in targets:
                     if os.path.dirname(target) == path and (not name or os.path.basename(target) == name):
                         changed.add(target)
                         reset = True  # Replacement/deletion: follow the path's current inode.
+                    elif (target.startswith(below) and os.path.dirname(target) != path
+                          and (target[len(below):].split('/', 1)[0] == name
+                               if name else mask & RESET)):
+                        # An ancestor of the view was renamed, replaced or deleted.
+                        changed.add(target)
+                        reset = True
         return changed, reset
 
     def close(self):
@@ -66,12 +140,17 @@ class DirectoryMonitor:
 
     Epochs discard results superseded by filesystem events or navigation.
     While every view is watched, only events cause scans: replacement,
-    deletion and queue overflow rearm the watches and rescan. Periodic scans
-    run only when notifications are unavailable or a watch could not be
-    added. Slow filesystems cannot hold the desktop's input loop.
+    deletion (of the view or any ancestor) and queue overflow rearm the
+    watches and rescan. Periodic scans run every ``interval`` only when
+    notifications are unavailable or a watch could not be added, and every
+    ``slow_interval`` for views on network or FUSE filesystems (whose other
+    clients' changes inotify never reports) or whose ancestors cannot be
+    watched. A local view with healthy notifications causes no periodic I/O.
+    Slow filesystems cannot hold the desktop's input loop.
     """
-    def __init__(self, desk, scanner=scan, interval=5):
+    def __init__(self, desk, scanner=scan, interval=5, slow_interval=60):
         self.desk, self.scanner, self.interval = desk, scanner, interval
+        self.slow_interval = slow_interval
         self.condition = threading.Condition()
         self.closed = False
         self.targets = self.view_paths()
@@ -121,7 +200,7 @@ class DirectoryMonitor:
             self.condition.notify_all()
 
     def events(self):
-        backend, known, next_scan = None, None, 0
+        backend, known, next_scan, next_poll = None, None, 0, 0
         try:
             while True:
                 with self.condition:
@@ -138,10 +217,18 @@ class DirectoryMonitor:
                     self.dirty(targets, periodic=targets == known)
                     known = targets
                     next_scan = now + self.interval
+                    next_poll = now + self.slow_interval
                     watched = backend is not None and backend.complete
+                polled = set(getattr(backend, 'polled', ())) & targets if watched else set()
+                if polled and now >= next_poll:
+                    self.dirty(polled, periodic=True)
+                    next_poll = now + self.slow_interval
                 fds = [self.command_r] + ([backend.fd] if backend is not None else [])
                 # The bounded wait also notices close(); it performs no I/O.
-                wait = .25 if watched else min(.25, max(0, next_scan-time.monotonic()))
+                if watched:
+                    wait = min(.25, max(0, next_poll-time.monotonic())) if polled else .25
+                else:
+                    wait = min(.25, max(0, next_scan-time.monotonic()))
                 ready, unused, unused = select.select(fds, [], [], wait)
                 if self.command_r in ready:
                     with self.condition:
