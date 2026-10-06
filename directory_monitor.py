@@ -23,10 +23,15 @@ class Inotify:
         if self.fd < 0:
             raise OSError(ctypes.get_errno(), 'Directory monitoring unavailable')
         self.paths = {}
+        # Complete only when every view and its parent is watched; otherwise
+        # periodic snapshots must cover what notifications cannot.
+        self.complete = True
         for path in paths | {os.path.dirname(p) for p in paths}:
             wd = add(self.fd, os.fsencode(path), MASK | 0x01000000)  # IN_ONLYDIR
             if wd >= 0:
                 self.paths.setdefault(wd, set()).add(path)
+            else:
+                self.complete = False
 
     def changes(self, targets):
         changed, reset = set(), False
@@ -60,8 +65,10 @@ class DirectoryMonitor:
     """One event thread and two bounded daemon scanners for all open views.
 
     Epochs discard results superseded by filesystem events or navigation.
-    Periodic scans repair lost/unsupported notifications and rearm replaced
-    directories. Slow filesystems cannot hold the desktop's input loop.
+    While every view is watched, only events cause scans: replacement,
+    deletion and queue overflow rearm the watches and rescan. Periodic scans
+    run only when notifications are unavailable or a watch could not be
+    added. Slow filesystems cannot hold the desktop's input loop.
     """
     def __init__(self, desk, scanner=scan, interval=5):
         self.desk, self.scanner, self.interval = desk, scanner, interval
@@ -122,7 +129,8 @@ class DirectoryMonitor:
                         return
                     targets = set(self.targets)
                 now = time.monotonic()
-                if targets != known or now >= next_scan:
+                watched = backend is not None and backend.complete
+                if targets != known or (not watched and now >= next_scan):
                     if backend is not None:
                         backend.close(); backend = None
                     try: backend = Inotify(targets)
@@ -130,8 +138,11 @@ class DirectoryMonitor:
                     self.dirty(targets, periodic=targets == known)
                     known = targets
                     next_scan = now + self.interval
+                    watched = backend is not None and backend.complete
                 fds = [self.command_r] + ([backend.fd] if backend is not None else [])
-                ready, unused, unused = select.select(fds, [], [], min(.25, max(0, next_scan-time.monotonic())))
+                # The bounded wait also notices close(); it performs no I/O.
+                wait = .25 if watched else min(.25, max(0, next_scan-time.monotonic()))
+                ready, unused, unused = select.select(fds, [], [], wait)
                 if self.command_r in ready:
                     with self.condition:
                         if self.closed:

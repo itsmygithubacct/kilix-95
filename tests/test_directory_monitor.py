@@ -132,6 +132,32 @@ with H.desktop_dir() as dd:
     finally: close(monitor)
 module.Inotify=native
 
+# Healthy notifications need no periodic rescans of every open folder (network
+# mounts included); an incomplete watch set still falls back to them.
+def count_scans(backend_type, seconds=1.2):
+    module.Inotify=backend_type
+    try:
+        with H.desktop_dir() as dd:
+            d=H.make_desk();calls=[]
+            def counting(path):
+                calls.append(time.monotonic());return scan(path)
+            monitor=DirectoryMonitor(d,scanner=counting,interval=.2)
+            try:
+                wait(monitor,lambda:bool(calls),'Initial snapshot was not taken')
+                start=time.monotonic()
+                while time.monotonic()-start<seconds: pump(monitor);time.sleep(.02)
+                quiet=[t for t in calls if t>=start]
+                (Path(dd)/'after.txt').write_text('event-driven')
+                wait(monitor,lambda:'after.txt' in labels(d.shell.grid),'Change after a quiet period was missed')
+                return len(quiet)
+            finally: close(monitor)
+    finally: module.Inotify=native
+class Incomplete(native):
+    def __init__(self,paths):
+        super().__init__(paths);self.complete=False
+assert count_scans(native)==0, 'Healthy inotify still rescanned periodically'
+assert count_scans(Incomplete)>=3, 'An incomplete watch set lost its periodic fallback'
+
 # A queue overflow must invalidate every displayed folder and rearm watches.
 reader,writer=os.pipe2(os.O_NONBLOCK|os.O_CLOEXEC)
 backend=module.Inotify.__new__(module.Inotify)
