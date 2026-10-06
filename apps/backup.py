@@ -15,6 +15,7 @@ import wm
 _FILTERS = [("Kilix backups", "*.tar.gz"), ("All Files", "*.*")]
 _SESSION_FILE = "kilix/kilix.env"     # read once per Kilix session, not per desktop
 _SHOWN_CHANGES = 6
+_SHOWN_FLAGGED = 8      # keeps the box on screen; the rest are counted, not hidden
 
 
 def _backend():
@@ -110,15 +111,22 @@ class BackupWin(wm.Window):
         launch_key = getattr(self.backend, "launch_key", lambda key: True)
         flagged = [r for r in rows if r[0] == _SESSION_FILE and launch_key(r[1])]
         other = [r for r in rows if r not in flagged]
-        # Every change that can alter what runs is shown, first; only the rest
-        # is shortened, so padding a backup with settings cannot hide one.
-        shown = flagged + other[:max(0, _SHOWN_CHANGES - len(flagged))]
+        # Changes that can alter what runs come first, so padding a backup with
+        # ordinary settings cannot push one out of view. Past a screenful they
+        # are counted in their own line rather than folded into the others.
+        shown_flagged = flagged[:_SHOWN_FLAGGED]
+        shown = shown_flagged + other[:max(0, _SHOWN_CHANGES - len(shown_flagged))]
         lines = []
         for name, key, _old, new in shown:
             mark = " (can change what runs!)" if (name, key, _old, new) in flagged else ""
             lines.append(f"{os.path.basename(name)}: {key} = {new or '(removed)'}{mark}")
-        if len(rows) > len(shown):
-            lines.append(f"... and {len(rows) - len(shown)} more setting(s)")
+        hidden_flagged = len(flagged) - len(shown_flagged)
+        if hidden_flagged:
+            lines.append(f"... and {hidden_flagged} more that can change what runs: "
+                         "check them with 'kilix backup list' before restoring")
+        hidden = len(rows) - len(shown) - hidden_flagged
+        if hidden:
+            lines.append(f"... and {hidden} more setting(s)")
         return "\n\nSettings it changes:\n" + "\n".join(lines)
 
     def restore(self, archive):

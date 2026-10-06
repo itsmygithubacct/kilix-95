@@ -178,8 +178,34 @@ with mock.patch.object(wm, "msgbox", lambda desk, title, text, **kw: texts.appen
     w5.confirm_restore(padded)
 assert "KILIX_OBJECT_DETECTOR = sh /tmp/x.txt (can change what runs!)" in texts[-1], texts[-1]
 assert texts[-1].index("KILIX_OBJECT_DETECTOR") < texts[-1].index("key0"), texts[-1]
-assert "KILIX_CHROME_CLOCK = 1 (" not in texts[-1], "a display setting is not flagged"
 assert "... and 5 more setting(s)" in texts[-1], texts[-1]
+
+# A display setting is shown unflagged when there is room for it.
+with open(settings_file, "w") as fh:
+    fh.write("".join(f"key{i}=theirs\n" for i in range(9)))
+with open(kilix_env, "w") as fh:
+    fh.write("KILIX_CHROME_CLOCK=1\n")
+display_only = w5.backend.create()
+with open(kilix_env, "w") as fh:
+    fh.write("KILIX_CHROME_CLOCK=0\n")
+texts.clear()
+with mock.patch.object(wm, "msgbox", lambda desk, title, text, **kw: texts.append(text)):
+    w5.confirm_restore(display_only)
+assert "kilix.env: KILIX_CHROME_CLOCK = 1\n" in texts[-1] + "\n", texts[-1]
+assert "can change what runs" not in texts[-1], texts[-1]
+
+# Many flagged changes stay on screen: eight are listed and the rest counted
+# on their own line, never folded into the ordinary settings.
+with open(kilix_env, "w") as fh:
+    fh.write("".join(f"KILIX_FAKE_{i:02d}=x\n" for i in range(12)))
+flood = w5.backend.create()
+with open(kilix_env, "w") as fh:
+    fh.write("")
+texts.clear()
+with mock.patch.object(wm, "msgbox", lambda desk, title, text, **kw: texts.append(text)):
+    w5.confirm_restore(flood)
+assert texts[-1].count("(can change what runs!)") == 8, texts[-1]
+assert "... and 4 more that can change what runs" in texts[-1], texts[-1]
 
 # Back Up Now names the files a backup cannot hold instead of writing an
 # archive its own restore would refuse.
