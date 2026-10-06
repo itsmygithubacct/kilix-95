@@ -3,6 +3,7 @@ import os
 from unittest import mock
 
 import harness as H
+import wm as wm_mod_for_test
 import widgets as W
 from apps import controlpanel
 from apps.backup import BackupWin
@@ -61,8 +62,13 @@ import storage                                                # noqa: E402
 notice = storage.state_dir(d.RESTORE_NOTICE)
 assert os.path.exists(notice)
 after = H.make_desk()
-after._start_document_recovery()                  # the restarted desktop's startup
+shown_notice = []
+real_box = wm_mod_for_test.msgbox
+with mock.patch.object(wm_mod_for_test, "msgbox",
+                       lambda desk, title, text, **kw: shown_notice.append(text) or real_box(desk, title, text, **kw)):
+    after._start_document_recovery()              # the restarted desktop's startup
 assert box(after, "Restore") is not None and not os.path.exists(notice)
+assert any("are loaded" in text for text in shown_notice), shown_notice
 
 # Without a supervisor it relaunches itself the old way instead of exiting 75 ...
 os.environ.pop("KILIX_DESKTOP_SUPERVISED", None)
@@ -78,6 +84,19 @@ d3.shell._restart_desktop = lambda: False
 d3.restart_after_restore("Restored 1 file(s).")
 assert not d3.shell.state_frozen, "a desktop that cannot restart must keep saving"
 assert box(d3, "Restore") is not None and not os.path.exists(storage.state_dir(d3.RESTORE_NOTICE))
+failed_text = []
+d3b = H.make_desk()
+d3b.shell._restart_desktop = lambda: False
+apps.open(d3b, "backup")
+w3b = H.find_window(d3b, "BackupWin")
+with open(os.path.join(desktop, "letter.txt"), "w") as fh:
+    fh.write("edited again\n")
+with mock.patch.object(wm_mod_for_test, "msgbox",
+                       lambda desk, title, text, **kw: failed_text.append(text)):
+    w3b.restore(archive)                          # the applet's own message
+assert "Restored 1 file(s)" in failed_text[-1], failed_text
+assert "could not restart itself" in failed_text[-1], failed_text
+assert "are loaded" not in failed_text[-1], "a desktop that did not restart has not loaded them"
 
 # A requested restart is not reported as a crash.
 import doc_recovery                                           # noqa: E402
@@ -137,11 +156,41 @@ real_msgbox = wm.msgbox
 with mock.patch.object(wm, "msgbox", lambda desk, title, text, **kw: texts.append(text)):
     w5.confirm_restore(from_elsewhere)
 assert "Settings it changes" in texts[-1], texts
-assert "KILIX95_DIR = /opt/elsewhere (decides what runs!)" in texts[-1], texts[-1]
+assert "KILIX95_DIR = /opt/elsewhere (can change what runs!)" in texts[-1], texts[-1]
 assert "log out and back in" in texts[-1], texts[-1]
 said.clear()
 w5.restore(from_elsewhere)
 assert "Previous files:" in said[0] and "kilix.env was restored too" in said[0], said
+
+# Padding a backup with ordinary settings cannot push a flagged one out of view.
+settings_file = os.environ["GPU_TERMINAL_SETTINGS_FILE"]
+with open(settings_file, "w") as fh:
+    fh.write("".join(f"key{i}=theirs\n" for i in range(9)))
+with open(kilix_env, "w") as fh:
+    fh.write("KILIX_OBJECT_DETECTOR=sh /tmp/x.txt\nKILIX_CHROME_CLOCK=1\n")
+padded = w5.backend.create()
+with open(settings_file, "w") as fh:
+    fh.write("".join(f"key{i}=mine\n" for i in range(9)))
+with open(kilix_env, "w") as fh:
+    fh.write("KILIX_CHROME_CLOCK=0\n")
+texts.clear()
+with mock.patch.object(wm, "msgbox", lambda desk, title, text, **kw: texts.append(text)):
+    w5.confirm_restore(padded)
+assert "KILIX_OBJECT_DETECTOR = sh /tmp/x.txt (can change what runs!)" in texts[-1], texts[-1]
+assert texts[-1].index("KILIX_OBJECT_DETECTOR") < texts[-1].index("key0"), texts[-1]
+assert "KILIX_CHROME_CLOCK = 1 (" not in texts[-1], "a display setting is not flagged"
+assert "... and 5 more setting(s)" in texts[-1], texts[-1]
+
+# Back Up Now names the files a backup cannot hold instead of writing an
+# archive its own restore would refuse.
+odd = os.path.join(w5.desk.shell.dir, "C:\\Users\\me\\report.txt")
+with open(odd, "w") as fh:
+    fh.write("from a zip\n")
+texts.clear()
+with mock.patch.object(wm, "msgbox", lambda desk, title, text, **kw: texts.append(text)):
+    w5.back_up()
+assert "Left out 1 file(s)" in texts[-1] and "report.txt" in texts[-1], texts[-1]
+os.unlink(odd)
 os.environ.pop("KILIX_DESKTOP_SUPERVISED", None)
 
 print("ok")

@@ -48,14 +48,19 @@ class BackupWin(wm.Window):
             self.status.text = "This Kilix host does not provide backups yet."
 
     def back_up(self):
+        skipped = []
         try:
-            path = self.backend.create()
+            path = self.backend.create(skipped=skipped)
         except (OSError, self.backend.BackupError) as error:
             wm.msgbox(self.desk, "Backup", f"The backup failed:\n{error}", icon="error")
             return
         self.status.text = "Saved " + os.path.basename(path)
         self.invalidate()
-        wm.msgbox(self.desk, "Backup", f"Backup saved to\n{path}", icon="info")
+        text = f"Backup saved to\n{path}"
+        if skipped:
+            text += (f"\n\nLeft out {len(skipped)} file(s) whose names a backup cannot "
+                     "hold, such as " + os.path.basename(skipped[0]))
+        wm.msgbox(self.desk, "Backup", text, icon="warn" if skipped else "info")
 
     def choose_restore(self):
         os.makedirs(self.backend.default_directory(), mode=0o700, exist_ok=True)
@@ -102,13 +107,18 @@ class BackupWin(wm.Window):
             return ""
         if not rows:
             return ""
-        flagged = getattr(self.backend, "launch_key", lambda key: False)
+        launch_key = getattr(self.backend, "launch_key", lambda key: True)
+        flagged = [r for r in rows if r[0] == _SESSION_FILE and launch_key(r[1])]
+        other = [r for r in rows if r not in flagged]
+        # Every change that can alter what runs is shown, first; only the rest
+        # is shortened, so padding a backup with settings cannot hide one.
+        shown = flagged + other[:max(0, _SHOWN_CHANGES - len(flagged))]
         lines = []
-        for name, key, old, new in rows[:_SHOWN_CHANGES]:
-            mark = " (decides what runs!)" if name == _SESSION_FILE and flagged(key) else ""
+        for name, key, _old, new in shown:
+            mark = " (can change what runs!)" if (name, key, _old, new) in flagged else ""
             lines.append(f"{os.path.basename(name)}: {key} = {new or '(removed)'}{mark}")
-        if len(rows) > _SHOWN_CHANGES:
-            lines.append(f"... and {len(rows) - _SHOWN_CHANGES} more setting(s)")
+        if len(rows) > len(shown):
+            lines.append(f"... and {len(rows) - len(shown)} more setting(s)")
         return "\n\nSettings it changes:\n" + "\n".join(lines)
 
     def restore(self, archive):
@@ -122,7 +132,6 @@ class BackupWin(wm.Window):
             message += f"\nPrevious files: {os.path.basename(result['safety'])}"
         else:
             message += "\nNo existing file was replaced."
-        message += "\n\nThe restored desktop settings are loaded."
         if _SESSION_FILE in result.get("names", ()):
             message += ("\nkilix.env was restored too: log out and back in for it "
                         "to take effect.")
