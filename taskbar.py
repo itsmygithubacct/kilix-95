@@ -488,6 +488,8 @@ class Taskbar:
                    action=lambda: shell.open_app("notepad")),
                 MI("Paint", icon="paint",
                    action=lambda: shell.open_app("paint")),
+                MI("PTY Session Manager", icon="ptysessions",
+                   action=lambda: shell.open_app("ptysessions")),
                 MI("Task Manager", icon="taskmgr",
                    action=lambda: shell.open_app("taskmgr")),
                 MI("WordPad", icon="wordpad",
