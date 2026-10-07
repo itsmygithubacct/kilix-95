@@ -549,15 +549,19 @@ _worker = threading.local()
 
 
 def _worker_font(font):
-    path, size = getattr(font, "path", None), getattr(font, "size", None)
-    if path is None or size is None:
+    """This thread's own face for the UI's font. Never the UI's own object: a
+    FreeType face is not safe to share between threads, so when the face
+    cannot be reopened (the file was renamed or removed after startup) this
+    raises and the layout fails, which keeps End Session locked, rather than
+    sharing it. A bitmap font has no such state and is used as is."""
+    if not isinstance(font, ImageFont.FreeTypeFont):
         return font
+    path, size = font.path, font.size
+    if not isinstance(path, (str, bytes, os.PathLike)):
+        raise OSError("the font was not loaded from a file that can be reopened")
     fonts = _worker.__dict__.setdefault("fonts", {})
     if (path, size) not in fonts:
-        try:
-            fonts[(path, size)] = ImageFont.truetype(path, size)
-        except OSError:
-            fonts[(path, size)] = font
+        fonts[(path, size)] = ImageFont.truetype(path, size)
     return fonts[(path, size)]
 
 
@@ -573,7 +577,9 @@ class _Viewer(_ReadOnlyTextArea):
     time, stays up meanwhile): show() never costs the UI thread more than a
     few milliseconds. `pending` says a layout is still running; on_ready()
     is called whenever one lands. cancel() abandons work when the window
-    closes.
+    closes. A layout that fails is not a layout: `failed` says so, the
+    source is never recorded as laid out, and `complete` stays false, so
+    nothing that waits for the whole text to be shown can proceed.
     """
     SYNC_CHARS = 2000
 
@@ -581,12 +587,19 @@ class _Viewer(_ReadOnlyTextArea):
         super().__init__(*args, **kwargs)
         self.source = ""
         self.on_ready = None
+        self.failed = False                  # the last layout raised
         self._laid_out = None                # (source, width) of self.lines
         self._job = None                     # (future, cancel, key, keep)
 
     @property
     def pending(self):
         return self._job is not None
+
+    @property
+    def complete(self):
+        """The whole source is laid out, at the current width, without error."""
+        return (not self.failed and self._job is None and self._laid_out
+                == (self.source, max(1, self.w - T.SCROLL_W - 10)))
 
     def show(self, source, keep_scroll=False):
         self.source = source
@@ -595,12 +608,18 @@ class _Viewer(_ReadOnlyTextArea):
         if self._job is not None and self._job[2] == key:
             return                           # already on its way
         self.cancel()
+        self.failed = False
         if self._laid_out == key:
             self._settle(keep_scroll)
             return
         text = source.expandtabs(4)
         if len(source) <= self.SYNC_CHARS or self.desk is None:
-            self._apply(wrap_lines(text, width, self.font), key, keep_scroll)
+            try:
+                rows = wrap_lines(text, width, self.font)
+            except Exception:                # never take the desktop down
+                self._fail()
+            else:
+                self._apply(rows, key, keep_scroll)
             return
         if self._laid_out is None:
             self.set_text("Laying out the text…")
@@ -615,10 +634,20 @@ class _Viewer(_ReadOnlyTextArea):
             self.sb.total, self.sb.page = len(self.lines), self._rows()
             self.sb.clamp()
 
+    FAILED_TEXT = "(this text could not be laid out, so it is not shown)"
+
+    def _fail(self):
+        """A layout error: show that, record no completed layout."""
+        self.failed = True
+        self.set_text(self.FAILED_TEXT)
+        if self.on_ready:
+            self.on_ready()
+
     def _apply(self, rows, key, keep_scroll):
         pos = self.sb.pos
         self.set_text("\n".join(rows))
         self._laid_out = key
+        self.failed = False
         if keep_scroll:
             self.sb.pos = pos
         self._settle(keep_scroll)
@@ -637,9 +666,10 @@ class _Viewer(_ReadOnlyTextArea):
         try:
             rows = future.result()
         except Exception:                    # never take the desktop down
-            rows = ["(this text could not be laid out)"]
-        if rows is not None:
-            self._apply(rows, key, keep)
+            self._fail()
+        else:
+            if rows is not None:
+                self._apply(rows, key, keep)
         self.invalidate()
 
     def _unhook(self):
@@ -752,8 +782,10 @@ class ConfirmEnd(wm.Window):
         self.view.show(f"Session ID:\n{sid}\n\nCommand:\n{command}")
         warning = _wrap_px("The program running in it will be terminated, and "
                            "anything in it that is not saved is lost.", cw - 24)
-        for i, line in enumerate(warning.split("\n")):
-            self.add(W.Label(12, 216 + i * 14, line))
+        self._warning_labels = [self.add(W.Label(12, 216 + i * 14, line))
+                                for i, line in enumerate(warning.split("\n"))]
+        self._failure_labels = []
+        self._locked = False
         by = ch - 33
         self.b_end = self.add(W.Button(cw - 204, by, 96, 23, "End Session",
                                        cb=self._end))
@@ -766,12 +798,26 @@ class ConfirmEnd(wm.Window):
 
     def _ready(self):
         """End Session works only once the whole ID and command are laid out
-        in the body: nothing may be confirmed unseen."""
-        self.b_end.enabled = not self.view.pending
+        in the body without error: nothing may be confirmed unseen. If the
+        layout fails the dialog says so and End stays locked for good."""
+        if self.view.failed:
+            self._locked = True              # a failed layout is final
+        self.b_end.enabled = self.view.complete and not self._locked
         self.b_end.invalidate()
+        if self._locked and not self._failure_labels:
+            for label in self._warning_labels:
+                label.visible = False
+            lines = _wrap_px("The session ID and command could not be "
+                             "displayed, so this session cannot be ended "
+                             "from here. Cancel, and end it from a terminal.",
+                             self.client_size()[0] - 24)
+            for i, line in enumerate(lines.split("\n")):
+                self._failure_labels.append(
+                    self.add(W.Label(12, 216 + i * 14, line)))
+            self.invalidate()
 
     def _end(self):
-        if self.view.pending:
+        if self._locked or not self.view.complete:
             return
         self.close()
         self.on_confirm()

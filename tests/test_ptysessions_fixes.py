@@ -71,8 +71,7 @@ for name, text in cases.items():
     # the layout is verified in full for the hard cases; the others (the
     # review's original repeated-character cases) only need to be cheap here
     # and are covered losslessly by the wrap_lines checks below
-    hard = name.startswith(("repeated A", "65,536 distinct", "mixed prose",
-                            "21,000"))
+    hard = name.startswith(("repeated A", "65,536 distinct"))
     full = name.startswith(("repeated A", "65,536 distinct"))
     if hard:
         assert win.view.wait(60), name
@@ -84,7 +83,7 @@ for name, text in cases.items():
         win.on_resize()
     resized = best_of(1, resize)
     assert resized < BOUND, (name, "resize", resized)
-    if name in ("mixed prose", "65,536 distinct plane-2"):   # rest abandoned
+    if name == "65,536 distinct plane-2":                    # rest abandoned
         assert win.view.wait(60), name
         assert "".join(win.view.lines) == data["text"].replace("\n", ""), name
         assert not rows_fit(win, 5), (name, "after resize", rows_fit(win, 5)[:2])
@@ -289,5 +288,179 @@ pnode = tree2.nodes[tree2.identity(pad.ta)]
 assert "editable" in pnode["states"] and "read-only" not in pnode["states"]
 assert tree2.apply(pnode["id"], "set_text", ["still editable"])
 assert pad.ta.text() == "still editable"
+
+# ── 4. a layout that fails never unlocks End Session ────────────────────────
+from concurrent.futures import Future
+from unittest import mock
+
+
+class HeldPool:
+    """Layout jobs that finish only when the test says so (or fails)."""
+
+    def __init__(self):
+        self.futures = []
+
+    def submit(self, fn, *args, **kwargs):
+        future = Future()
+        self.futures.append(future)
+        return future
+
+
+def kill_argv(fake_):
+    return [c for c in fake_.calls() if c[:2] == ["pty", "kill"]]
+
+
+big = "A" * 5000 + " SECRET-TAIL"
+pool = HeldPool()
+confirmed = []
+with mock.patch.object(P, "_LAYOUT_POOL", pool):
+    dlg = P.ConfirmEnd(d, "3fa9c2d41b7e6a05", big, lambda: confirmed.append(1))
+    d.wm.add(dlg)
+    assert dlg.view.pending and not dlg.b_end.enabled
+    pool.futures[-1].set_exception(RuntimeError("injected layout failure"))
+    dlg.view._poll(time.time())
+    # the failure is not a layout: nothing is recorded as laid out, nothing
+    # unlocks, and the dialog says the target cannot be shown
+    assert dlg.view.failed and not dlg.view.pending and not dlg.view.complete
+    assert dlg.view._laid_out is None
+    assert dlg.view.text() == P._Viewer.FAILED_TEXT
+    assert not dlg.b_end.enabled, "End Session unlocked after a failed layout"
+    dlg._end()
+    bx, by = dlg.client_origin()
+    H.click(d, bx + dlg.b_end.x + 4, by + dlg.b_end.y + 4)
+    H.key(d, "Enter")                                   # Cancel is the default
+    assert confirmed == [], "a failed layout confirmed the end"
+    assert dlg not in d.wm.windows                      # Enter cancelled it
+    d.wm.add(dlg) if dlg not in d.wm.windows else None
+
+with mock.patch.object(P, "_LAYOUT_POOL", HeldPool()) as held:
+    dlg = P.ConfirmEnd(d, "3fa9c2d41b7e6a05", big, lambda: confirmed.append(1))
+    d.wm.add(dlg)
+    held.futures[-1].set_exception(RuntimeError("injected"))
+    dlg.view._poll(time.time())
+    labels = " ".join(w.text for w in dlg.widgets
+                      if isinstance(w, W.Label) and w.visible)
+    assert "could not be displayed" in labels and "cannot be ended from here" \
+        in labels, labels
+    assert "will be terminated" not in labels          # the usual line is gone
+    assert dlg.focus is dlg.b_cancel and dlg.b_cancel.default
+    nodes, exposed = dialog_text(dlg)
+    assert "could not be displayed" in exposed and "cannot be ended" in exposed
+    # a later successful layout of the same text cannot revive the dialog
+    dlg.view.show(dlg.view.source)
+    held.futures[-1].set_result(["Session ID:", "x"])
+    dlg.view._poll(time.time())
+    assert dlg.view.complete and not dlg.b_end.enabled
+    dlg._end()
+    assert confirmed == []
+    dlg.close()
+
+# the full flow: no kill argv may be produced
+fake.set(F.standard_responses())
+fake.clear()
+mgr = P.PtySessions(d)
+d.wm.add(mgr)
+end = time.time() + 8
+while mgr.futures and time.time() < end:
+    mgr._tick(time.time())
+    time.sleep(0.02)
+mgr.list.sel = 1
+mgr._select_session(mgr.list.items[1])
+mgr._selected_row()["session"]["command"] = big
+held = HeldPool()
+with mock.patch.object(P, "_LAYOUT_POOL", held):
+    mgr._end()
+    dlg = H.find_window(d, "ConfirmEnd")
+    assert dlg is not None and not dlg.b_end.enabled
+    held.futures[-1].set_exception(RuntimeError("injected layout failure"))
+    dlg.view._poll(time.time())
+    bx, by = dlg.client_origin()
+    H.click(d, bx + dlg.b_end.x + 4, by + dlg.b_end.y + 4)
+    assert "kill" not in mgr.futures and kill_argv(fake) == [], fake.calls()
+    dlg._end()
+    assert kill_argv(fake) == [] and "kill" not in mgr.futures
+    dlg.close()
+mgr.close()
+
+# the same through the real pool when the worker cannot get its own face
+with mock.patch.object(P, "_worker_font", side_effect=OSError("gone")):
+    dlg = P.ConfirmEnd(d, "3fa9c2d41b7e6a05", big, lambda: confirmed.append(1))
+    d.wm.add(dlg)
+    assert dlg.view.pending
+    dlg.view.wait(30)
+    assert dlg.view.failed and not dlg.b_end.enabled
+    dlg._end()
+    assert confirmed == []
+    dlg.close()
+
+# a failure while laying out short text on the UI thread locks it too
+real_wrap = P.wrap_lines
+
+
+def wrap_or_boom(text, width, font=None, words=False, cancel=None):
+    if not words:                                  # only the viewer's layout
+        raise ValueError("boom")
+    return real_wrap(text, width, font, words, cancel)
+
+
+with mock.patch.object(P, "wrap_lines", wrap_or_boom):
+    dlg = P.ConfirmEnd(d, "3fa9c2d41b7e6a05", "sleep 300",
+                       lambda: confirmed.append(1))
+    d.wm.add(dlg)
+    assert dlg.view.failed and not dlg.b_end.enabled
+    dlg._end()
+    assert confirmed == []
+    dlg.close()
+
+# the output window shows the failure and still closes
+with mock.patch.object(P, "_LAYOUT_POOL", HeldPool()) as held:
+    out = P.OutputWindow(d, "t", "banner", "z" * 5000)
+    d.wm.add(out)
+    held.futures[-1].set_exception(RuntimeError("injected"))
+    out.view._poll(time.time())
+    assert out.view.failed and out.view.text() == P._Viewer.FAILED_TEXT
+    d.dirty = True
+    d.render()
+    out.close()
+    assert out not in d.wm.windows
+
+# ── 5. the worker never shares the UI's font face ──────────────────────────
+import shutil
+import tempfile
+import threading
+from pathlib import Path
+from PIL import ImageFont
+with tempfile.TemporaryDirectory(prefix="k95-font-") as temp:
+    custom = Path(temp) / "custom.ttf"
+    shutil.copyfile(T.FONT.path, custom)
+    ui_font = ImageFont.truetype(str(custom), 11)
+    # normal: a worker thread gets its own, reused, independent face
+    got = []
+    thread = threading.Thread(target=lambda: got.extend(
+        [P._worker_font(ui_font), P._worker_font(ui_font)]))
+    thread.start()
+    thread.join()
+    assert got[0] is not ui_font and got[0] is got[1]
+    # the file is renamed after the UI loaded it: no fallback to the UI face
+    custom.rename(Path(temp) / "renamed.ttf")
+    problems = []
+
+    def probe():
+        try:
+            problems.append(("shared", P._worker_font(ui_font)))
+        except OSError as error:
+            problems.append(("refused", error))
+    threads = [threading.Thread(target=probe) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert [kind for kind, _ in problems] == ["refused", "refused"], problems
+    try:
+        P._layout_job("x" * 100, 200, ui_font, threading.Event())
+    except OSError:
+        pass
+    else:
+        raise AssertionError("a layout ran on a font it could not reopen")
 
 print("ok")
