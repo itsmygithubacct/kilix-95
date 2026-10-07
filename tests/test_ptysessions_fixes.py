@@ -35,40 +35,76 @@ def best_of(n, fn):
     return best
 
 
-# ── 1. bounded layout cost ──────────────────────────────────────────────────
-# The review measured 12 s for one 65,536-character line; layout is now
-# linear (a few tens of ms). The bound is loose so a loaded host cannot trip
-# it, and still two orders of magnitude below the old behaviour.
-BOUND = 0.6
+# ── 1. bounded UI cost, any text, cold cache ────────────────────────────────
+# Opening and resizing cost the UI thread only a submit; the layout runs on a
+# worker thread and lands from a tick hook. Bounds are loose for a loaded
+# host (the old code stalled for 2-12 s).
+BOUND = 0.3
+distinct = lambda start, n: "".join(chr(start + i) for i in range(n))
 cases = {"one ascii line": "x" * 65536,
          "one multibyte line": "界" * 65536,
          "mixed prose": "ab 界 W " * 9000,
-         "200 long lines": "\n".join("x" * 326 for _ in range(200))}
+         "200 long lines": "\n".join("x" * 326 for _ in range(200)),
+         "repeated A (positive kerning)": "A" * 65536,
+         "21,000 distinct CJK": distinct(0x4E00, 21000),
+         "65,536 distinct plane-2": distinct(0x20000, 65536)}
+
+
+def rows_fit(win, step=1):
+    """Rows (every `step`th) that measure wider than the viewport as a
+    whole string; empty means they all fit."""
+    limit = win.view.w - T.SCROLL_W - 10
+    return [line for line in win.view.lines[::step]
+            if len(line) > 1 and T.text_w(win.view.font, line) > limit]
+
+
 for name, text in cases.items():
     data = P._bounded_text({"text": text, "truncated": False}, "test")
     box = []
-    opened = best_of(3, lambda: box.append(
+    opened = best_of(1, lambda: box.append(
         P.OutputWindow(d, "t", "banner", data["text"])))
+    for old in box[:-1]:
+        old.close()
     win = box[-1]
     assert opened < BOUND, (name, "open", opened)
-    assert "".join(win.view.lines) == data["text"].replace("\n", ""), name
-    limit = win.view.w - T.SCROLL_W - 10
-    assert all(T.text_w(win.view.font, line) <= limit + 1
-               for line in win.view.lines[:300]), name
+    assert win.view.pending, (name, "large text must be laid out off-thread")
+    # the layout is verified in full for the hard cases; the others (the
+    # review's original repeated-character cases) only need to be cheap here
+    # and are covered losslessly by the wrap_lines checks below
+    hard = name.startswith(("repeated A", "65,536 distinct", "mixed prose",
+                            "21,000"))
+    full = name.startswith(("repeated A", "65,536 distinct"))
+    if hard:
+        assert win.view.wait(60), name
+        assert "".join(win.view.lines) == data["text"].replace("\n", ""), name
+        assert not rows_fit(win, 1 if full else 4), (name, rows_fit(win)[:2])
 
     def resize():
         win.w += 23 if win.w < 900 else -300
         win.on_resize()
-    resized = best_of(3, resize)
+    resized = best_of(1, resize)
     assert resized < BOUND, (name, "resize", resized)
-    assert "".join(win.view.lines) == data["text"].replace("\n", ""), name
-    d.dirty = True
-    d.render()
+    if name in ("mixed prose", "65,536 distinct plane-2"):   # rest abandoned
+        assert win.view.wait(60), name
+        assert "".join(win.view.lines) == data["text"].replace("\n", ""), name
+        assert not rows_fit(win, 5), (name, "after resize", rows_fit(win, 5)[:2])
+    if name in ("mixed prose", "65,536 distinct plane-2"):
+        d.dirty = True
+        d.render()
     win.close()
+    assert not win.view.pending and win.view._poll not in d.tick_hooks
+
+# the placeholder is what is up while the first layout runs
+win = P.OutputWindow(d, "t", "banner", "界" * 60000)
+assert win.view.pending and win.view.text() == "Laying out the text…"
+assert win.view._poll in d.tick_hooks
+win.close()                                      # closing abandons the work
+assert not win.view.pending and win.view._poll not in d.tick_hooks
 
 # through the real job path: the UI-thread part of a finished preview
 fake.set([F.response(["pty", "observe"], F.doc(
-    F.OBSERVE, text="x" * 65536, total_bytes=65536))] + F.standard_responses())
+    F.OBSERVE, text=distinct(0x20000, 65536), total_bytes=262141))]
+    + F.standard_responses())
 win = P.PtySessions(d)
 d.wm.add(win)
 end = time.time() + 8
@@ -83,20 +119,59 @@ future.result(timeout=10)
 spent = best_of(1, lambda: win._tick(time.time()))
 assert spent < BOUND, spent
 view = H.find_window(d, "OutputWindow")
-assert view is not None and "".join(view.view.lines) == "x" * 65536
+assert view is not None and view.view.wait(60)
+assert "".join(view.view.lines) == distinct(0x20000, 65536)
+assert not rows_fit(view)
 view.close()
 win.close()
 
-# ── wrap_lines: nothing lost, rows fit, words mode keeps words ──────────────
-rows = P.wrap_lines("W" * 64, 120)
-assert "".join(rows) == "W" * 64 and len(rows) > 1
-assert all(T.text_w(T.FONT, r) <= 121 for r in rows)
+# ── wrap_lines: nothing lost, every row fits as a whole string ──────────────
+limit = 570
+for text in ("A" * 75, "A" * 1000, "AV To Ty " * 200, "W" * 64, "界" * 300,
+             "e\u0301" * 200):
+    rows = P.wrap_lines(text, limit)
+    assert "".join(rows) == text
+    assert all(T.text_w(T.FONT, r) <= limit for r in rows if len(r) > 1), text
+row75 = P.wrap_lines("A" * 75, limit)
+assert max(T.text_w(T.FONT, r) for r in row75) <= limit
 assert P.wrap_lines("", 100) == [""]
 assert P.wrap_lines("a\n\nb", 100) == ["a", "", "b"]
 prose = P.wrap_lines("one two three four five six seven", 80, words=True)
 assert " ".join(prose).split() == "one two three four five six seven".split()
-assert all(T.text_w(T.FONT, r) <= 81 for r in prose), prose
+assert all(T.text_w(T.FONT, r) <= 80 for r in prose), prose
 assert len(P.wrap_lines("x" * 50, 1)) == 50          # always makes progress
+assert P.wrap_lines("W", 1, words=True) == ["W"]     # no index past the end
+assert P.wrap_lines("a " * 3, 1, words=True)
+stop = P.threading.Event()
+stop.set()
+assert P.wrap_lines("x" * 5000, 100, cancel=stop) is None
+
+# the same two commands, one differing letter at the very end, must render
+# different End confirmations (the last character may not be clipped away)
+images = []
+for last in "BC":
+    dlg = P.ConfirmEnd(d, "b12.clipped", "A" * 49 + last, lambda: None)
+    d.wm.add(dlg)
+    assert "".join(dlg.view.lines).count("A" * 49 + last) == 1
+    assert not rows_fit(dlg)
+    images.append(dlg.render().tobytes())
+    dlg.close()
+assert images[0] != images[1], "different commands look identical"
+
+# a command too long to lay out at once: End waits until all of it is shown
+huge = "run " + "界x" * 3000
+dlg = P.ConfirmEnd(d, "3fa9c2d41b7e6a05", huge, lambda: seen.append("ended"))
+d.wm.add(dlg)
+seen = []
+assert dlg.view.pending and not dlg.b_end.enabled
+dlg._end()                                       # the API/keyboard path too
+bx, by = dlg.client_origin()
+H.click(d, bx + dlg.b_end.x + 5, by + dlg.b_end.y + 5)
+assert seen == [] and dlg in d.wm.windows, "End worked before the layout"
+assert dlg.view.wait(60) and dlg.b_end.enabled
+assert huge in "".join(dlg.view.lines)
+dlg._end()
+assert seen == ["ended"] and dlg not in d.wm.windows
 
 # ── 2. message boxes and the End dialog in the accessibility tree ───────────
 tree = Tree(d)

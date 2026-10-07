@@ -326,6 +326,8 @@ for doc, token, forbidden in (
         (F.UNCERTAIN, "still_listed", "has ended"),
         (F.UNCERTAIN_UNSENT, "status_failed", "has ended"),
         (F.REFUSED_MISMATCH, "started_mismatch", "has ended"),
+        (F.REFUSED_CANNOT_BIND, "cannot_bind", "has ended"),
+        (F.REFUSED_CALLER_UNIDENTIFIED, "caller_unidentified", "has ended"),
         (F.NOT_FOUND_RECEIPT, "not_found", "has ended")):
     fake.set([F.kill_response(doc)] + F.standard_responses())
     select(win, 1)
@@ -338,6 +340,12 @@ for doc, token, forbidden in (
     assert kw["icon"] == "warn", (token, kw)
     if token == "status_failed":
         assert "Nothing was sent" in text and "WAS sent" not in text, text
+    if token == "cannot_bind":
+        assert "older build" in text, text
+        assert f"kilix pty kill {DET}" in text, text
+        assert "Nothing was ended" in text, text
+    if token == "caller_unidentified":
+        assert "which pane" in text and "Nothing was ended" in text, text
     if token == "still_listed":
         assert "WAS sent" in text and "Nothing was sent" not in text, text
     settle(win)

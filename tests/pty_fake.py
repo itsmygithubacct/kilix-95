@@ -91,6 +91,17 @@ REFUSED_MISMATCH = receipt(
     message="started_millis is 1791337517862, not the expected 1: another "
             "session now has this ID",
     started_millis=DETACHED["started_millis"], expected_started_millis=1)
+# Added by kilix after the B1 review (supervisor's description; not yet
+# captured from a real run): a broker from an older build cannot bind a kill
+# to the start time, and a kill with no identifiable caller off a terminal.
+REFUSED_CANNOT_BIND = receipt(
+    "refused", reason="cannot_bind", request_sent=False,
+    message="this session's broker cannot bind a kill to its start time; "
+            "end it from a terminal without --expect-started")
+REFUSED_CALLER_UNIDENTIFIED = receipt(
+    "refused", reason="caller_unidentified", request_sent=False,
+    message="cannot tell which pane asked; pass --no-caller-check to end it "
+            "anyway")
 NOT_FOUND_RECEIPT = receipt("not_found", request_sent=False,
                             message="no such session")
 

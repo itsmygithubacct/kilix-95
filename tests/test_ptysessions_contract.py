@@ -134,7 +134,8 @@ assert fake.calls()[-1] == ["pty", "journals", "show",
 # ── end_session: exactly the contract's receipts, truthfully ────────────────
 sid, started = F.DETACHED["id"], F.DETACHED["started_millis"]
 for doc in (F.VERIFIED, F.UNCERTAIN, F.UNCERTAIN_UNSENT, F.REFUSED_OWN,
-            F.REFUSED_MISMATCH, F.NOT_FOUND_RECEIPT):
+            F.REFUSED_MISMATCH, F.REFUSED_CANNOT_BIND,
+            F.REFUSED_CALLER_UNIDENTIFIED, F.NOT_FOUND_RECEIPT):
     fake.set([F.kill_response(doc)])
     fake.clear()
     got = P.end_session(sid, started, L)
@@ -213,6 +214,11 @@ assert "waited_ms" not in F.REFUSED_MISMATCH
 assert F.VERIFIED["waited_ms"] and F.VERIFIED["started_millis"]
 assert P.receipt_message(F.VERIFIED)[0] == "info"
 assert "own_session" in text["refused"][1] and "Nothing was ended" in text["refused"][1]
+for bound in (F.REFUSED_CANNOT_BIND, F.REFUSED_CALLER_UNIDENTIFIED):
+    icon, said = P.receipt_message(bound)
+    assert icon == "warn" and "refused" in said and bound["reason"] in said
+    assert "Nothing was ended" in said and "has ended" not in said, said
+    assert bound["request_sent"] is False
 assert "not_found" in text["not_found"][1]
 assert "has ended" not in text["refused"][1] + text["not_found"][1]
 

@@ -13,14 +13,15 @@ subprocess runs on a worker thread and is polled from a tick hook, like Task
 Manager's refresh and Help Search's lookup, so a wedged broker cannot freeze
 the desktop.
 """
-from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor
-from itertools import accumulate
 import json
 import os
 import re
 import subprocess
+import threading
 import time
+
+from PIL import ImageFont
 
 import icons
 import theme as T
@@ -305,6 +306,25 @@ def end_session(session_id, started_millis, launcher=None, own=None):
                 waited_ms=doc.get("waited_ms"))
 
 
+# What a `refused` receipt's reason means for the person looking at it.
+# Every refusal means kilix sent nothing: the session is still running.
+REFUSAL_REASONS = {
+    "own_session": "This is the session this desktop runs in.",
+    "started_mismatch": ("Another session now has this ID, so the one you "
+                         "chose was not touched."),
+    "cannot_bind": ("This session's broker comes from an older build and "
+                    "cannot tie an end request to the session's start time, "
+                    "so the check that protects against a reused ID is not "
+                    "possible. It can still be ended from a terminal with "
+                    "`kilix pty kill {sid}`, which asks first and does not "
+                    "check the start time."),
+    "caller_unidentified": ("kilix could not tell which pane made the "
+                            "request, so it refused. Open this desktop from "
+                            "a Kilix pane, or end the session from a "
+                            "terminal."),
+}
+
+
 def receipt_message(receipt):
     """(icon, text) telling exactly what the receipt established."""
     sid = clean_text(receipt.get("id"))
@@ -331,8 +351,10 @@ def receipt_message(receipt):
         return "warn", (f"Session {sid} was not found.\n\nResult: not_found\n"
                         "Nothing was ended; it may already be gone.")
     if result == "refused":
+        why = REFUSAL_REASONS.get(reason, "").replace("{sid}", sid)
         return "warn", (f"Session {sid} was not ended.\n\nResult: refused"
                         f"{' (' + reason + ')' if reason else ''}\n"
+                        f"{why + chr(10) if why else ''}"
                         f"{detail or 'The request was refused.'}\n"
                         "Nothing was ended.")
     return "error", (f"No receipt for session {sid}.\n\n{detail}\n"
@@ -444,76 +466,201 @@ def journal_details(row, runtime):
 
 # ── widgets ──────────────────────────────────────────────────────────────────
 
-_ADVANCES = {}                               # font -> {character: pixels}
+def _row_count(line, start, hint, width, font):
+    """How many characters of line[start:] make a row that fits `width`.
+
+    The row is accepted only when the font measures the whole row string
+    within the width (T.text_w, the measurement drawing uses), so kerning
+    and shaping are accounted for. Estimate, verify, adjust: begin from the
+    previous row's length, scale by width / measured, and bisect only if the
+    estimates do not settle. Each row costs a few measurements of a string
+    one row long, never of the remaining line. Always at least 1.
+    """
+    n = len(line) - start
+    lo, hi = 0, n + 1          # lo fits (0: none known), hi does not fit
+    k = max(1, min(n, hint))
+    for _ in range(6):
+        measured = T.text_w(font, line[start:start + k])
+        if measured <= width:
+            lo = max(lo, k)
+            if lo >= n:
+                return n
+            if width - measured < measured / k:      # within one character
+                return lo
+            k = int(k * width / max(measured, 1))
+        else:
+            hi = min(hi, k)
+            k = int(k * width / measured)
+        if lo + 1 >= hi:
+            return max(1, lo)
+        k = max(lo + 1, min(k, hi - 1))
+    while lo + 1 < hi:                                # unsettled: bisect
+        mid = (lo + hi) // 2
+        if T.text_w(font, line[start:start + mid]) <= width:
+            lo = mid
+        else:
+            hi = mid
+    return max(1, lo)
 
 
-def _advance_table(font):
-    return _ADVANCES.setdefault(font, {})
-
-
-def wrap_lines(text, width, font=None, words=False):
-    """Visual lines of `text` no wider than `width` pixels, losing nothing.
+def wrap_lines(text, width, font=None, words=False, cancel=None):
+    """Visual lines of `text`, each measuring no wider than `width` pixels as
+    a whole string, losing nothing. Linear in the text: no row is found by
+    re-measuring the rest of the line.
 
     Breaks anywhere (words=False, for output and IDs) or, with words=True,
     at the last space of a row when there is one (for prose); a word wider
-    than a row is split.
-
-    Linear in the text. Measuring a string through PIL costs ~130 us per
-    call plus ~1 us per character, so rows are not found by re-measuring
-    prefixes. Each distinct character is measured once, the line's running
-    widths are accumulated, and every row end is one bisection. The sum of
-    advances is never narrower than the shaped string by more than a pixel
-    (kerning only tightens), so a row that fits by the table fits drawn.
+    than a row is split. `cancel` (a threading.Event) abandons the work and
+    returns None.
     """
     font = font or T.FONT
-    table = _advance_table(font)
     out = []
+    hint = max(1, width // 7)
     for line in text.split("\n"):
+        if cancel is not None and cancel.is_set():
+            return None
+        start = 0
         if not line:
             out.append("")
-            continue
-        for char in set(line).difference(table):
-            table[char] = font.getlength(char)
-        running = list(accumulate(map(table.__getitem__, line)))
-        total, start = len(line), 0
-        while start < total:
-            base = running[start - 1] if start else 0.0
-            end = bisect_right(running, base + width, start)
-            if end >= total:
-                out.append(line[start:].rstrip() if words else line[start:])
-                break
-            end = max(end, start + 1)
-            if words and line[end] != " ":
+        while start < len(line):
+            count = _row_count(line, start, hint, width, font)
+            end = start + count
+            if words and end < len(line) and line[end] != " ":
                 space = line.rfind(" ", start + 1, end)
-                if space > start:
+                if space > start and T.text_w(font, line[start:space]) <= width:
                     end = space
-            out.append(line[start:end].rstrip() if words else line[start:end])
+            row = line[start:end]
+            out.append(row.rstrip() if words else row)
+            hint = max(1, count)
             start = end
-            while words and start < total and line[start] == " ":
+            while words and start < len(line) and line[start] == " ":
                 start += 1
+            if cancel is not None and cancel.is_set():
+                return None
     return out
 
 
+# Large text is laid out on a worker thread: even a few hundred measurements
+# cost tens of milliseconds, and the contract's largest output is a thousand
+# rows. Each worker thread uses its own font object (a FreeType face is not
+# safe to share between threads).
+_LAYOUT_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pty-layout")
+_worker = threading.local()
+
+
+def _worker_font(font):
+    path, size = getattr(font, "path", None), getattr(font, "size", None)
+    if path is None or size is None:
+        return font
+    fonts = _worker.__dict__.setdefault("fonts", {})
+    if (path, size) not in fonts:
+        try:
+            fonts[(path, size)] = ImageFont.truetype(path, size)
+        except OSError:
+            fonts[(path, size)] = font
+    return fonts[(path, size)]
+
+
+def _layout_job(text, width, font, cancel):
+    return wrap_lines(text, width, _worker_font(font), cancel=cancel)
+
+
 class _Viewer(_ReadOnlyTextArea):
-    """Read-only text that wraps to its width without losing a character."""
+    """Read-only text that wraps to its width without losing a character.
+
+    Short text is laid out at once. Long text is laid out on a worker thread
+    and applied from a tick hook (the old layout, or a placeholder the first
+    time, stays up meanwhile): show() never costs the UI thread more than a
+    few milliseconds. `pending` says a layout is still running; on_ready()
+    is called whenever one lands. cancel() abandons work when the window
+    closes.
+    """
+    SYNC_CHARS = 2000
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.source = ""
+        self.on_ready = None
         self._laid_out = None                # (source, width) of self.lines
+        self._job = None                     # (future, cancel, key, keep)
+
+    @property
+    def pending(self):
+        return self._job is not None
 
     def show(self, source, keep_scroll=False):
-        pos = self.sb.pos
         self.source = source
         width = max(1, self.w - T.SCROLL_W - 10)
-        if self._laid_out != (source, width):
-            self.set_text("\n".join(
-                wrap_lines(source.expandtabs(4), width, self.font)))
-            self._laid_out = (source, width)
+        key = (source, width)
+        if self._job is not None and self._job[2] == key:
+            return                           # already on its way
+        self.cancel()
+        if self._laid_out == key:
+            self._settle(keep_scroll)
+            return
+        text = source.expandtabs(4)
+        if len(source) <= self.SYNC_CHARS or self.desk is None:
+            self._apply(wrap_lines(text, width, self.font), key, keep_scroll)
+            return
+        if self._laid_out is None:
+            self.set_text("Laying out the text…")
+        cancel = threading.Event()
+        future = _LAYOUT_POOL.submit(_layout_job, text, width, self.font, cancel)
+        self._job = (future, cancel, key, keep_scroll)
+        if self._poll not in self.desk.tick_hooks:
+            self.desk.tick_hooks.append(self._poll)
+
+    def _settle(self, keep_scroll):
         if keep_scroll:
-            self.sb.pos = pos
             self.sb.total, self.sb.page = len(self.lines), self._rows()
             self.sb.clamp()
+
+    def _apply(self, rows, key, keep_scroll):
+        pos = self.sb.pos
+        self.set_text("\n".join(rows))
+        self._laid_out = key
+        if keep_scroll:
+            self.sb.pos = pos
+        self._settle(keep_scroll)
+        if self.on_ready:
+            self.on_ready()
+
+    def _poll(self, now):
+        if self._job is None:
+            self._unhook()
+            return
+        future, cancel, key, keep = self._job
+        if not future.done():
+            return
+        self._job = None
+        self._unhook()
+        try:
+            rows = future.result()
+        except Exception:                    # never take the desktop down
+            rows = ["(this text could not be laid out)"]
+        if rows is not None:
+            self._apply(rows, key, keep)
+        self.invalidate()
+
+    def _unhook(self):
+        desk = self.desk
+        if desk is not None and self._poll in desk.tick_hooks:
+            desk.tick_hooks.remove(self._poll)
+
+    def cancel(self):
+        if self._job is not None:
+            self._job[1].set()
+            self._job[0].cancel()
+            self._job = None
+        self._unhook()
+
+    def wait(self, timeout=30.0):
+        """Block until a running layout lands (tests and screenshots)."""
+        end = time.time() + timeout
+        while self._job is not None and time.time() < end:
+            self._poll(time.time())
+            time.sleep(0.005)
+        return self._job is None
 
 
 class _ColumnList(W.ListBox):
@@ -613,8 +760,19 @@ class ConfirmEnd(wm.Window):
         self.b_cancel = self.add(W.Button(cw - 100, by, 88, 23, "Cancel",
                                           cb=self.close, default=True))
         self.set_focus(self.b_cancel)
+        self.on_close = self.view.cancel
+        self.view.on_ready = self._ready
+        self._ready()
+
+    def _ready(self):
+        """End Session works only once the whole ID and command are laid out
+        in the body: nothing may be confirmed unseen."""
+        self.b_end.enabled = not self.view.pending
+        self.b_end.invalidate()
 
     def _end(self):
+        if self.view.pending:
+            return
         self.close()
         self.on_confirm()
 
@@ -634,6 +792,7 @@ class OutputWindow(wm.Window):
         self.view.accessibility_name = "Pane output (read-only, untrusted)"
         self.view.show(text)
         self.set_focus(self.view)
+        self.on_close = self.view.cancel
 
     def on_resize(self):
         cw, ch = self.client_size()
@@ -1061,6 +1220,8 @@ class PtySessions(wm.Window):
 
     def _cleanup(self):
         self.closing = True
+        self.details.cancel()
+        self.jdetails.cancel()
         if self._tick in self.desk.tick_hooks:
             self.desk.tick_hooks.remove(self._tick)
         self.pool.shutdown(wait=False, cancel_futures=True)
