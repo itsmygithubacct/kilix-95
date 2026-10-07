@@ -71,8 +71,25 @@ def receipt(result, sid=DETACHED["id"], reason=None, request_sent=True,
                 reason=reason, message=message, **extra)
 
 
-VERIFIED = receipt("verified_absent", message="the session is gone",
-                   started_millis=DETACHED["started_millis"], waited_ms=151)
+# The three receipts below are real documents printed by `kilix pty kill` on
+# real brokers (kilix's captures/kill-verified_absent.json,
+# kill-refused-started_mismatch.json, kill-refused-cannot_bind.json), copied
+# byte for byte as JSON. Their ID is "target"; kill_response() / doc() put
+# the ID of the session under test into a copy where a flow needs it.
+VERIFIED = json.loads('''
+{
+  "schema": "kilix.pty/v1",
+  "runtime": "/run/user/1000/kilix-pty-broker",
+  "timeout_seconds": 2.0,
+  "result": "verified_absent",
+  "id": "target",
+  "request_sent": true,
+  "reason": null,
+  "message": "the session is gone",
+  "started_millis": 1791370099423,
+  "waited_ms": 151
+}
+''')
 # request sent, the session was still listed after the grace period
 UNCERTAIN = receipt("uncertain", reason="still_listed",
                     message="still listed after the grace period",
@@ -86,18 +103,37 @@ REFUSED_OWN = receipt(
     "refused", reason="own_session", request_sent=False,
     message="that is this pane's own session; ending it would end this "
             "program. Run the kill from another pane")
-REFUSED_MISMATCH = receipt(
-    "refused", reason="started_mismatch", request_sent=False,
-    message="started_millis is 1791337517862, not the expected 1: another "
-            "session now has this ID",
-    started_millis=DETACHED["started_millis"], expected_started_millis=1)
-# Added by kilix after the B1 review (supervisor's description; not yet
-# captured from a real run): a broker from an older build cannot bind a kill
-# to the start time, and a kill with no identifiable caller off a terminal.
-REFUSED_CANNOT_BIND = receipt(
-    "refused", reason="cannot_bind", request_sent=False,
-    message="this session's broker cannot bind a kill to its start time; "
-            "end it from a terminal without --expect-started")
+REFUSED_MISMATCH = json.loads('''
+{
+  "schema": "kilix.pty/v1",
+  "runtime": "/run/user/1000/kilix-pty-broker",
+  "timeout_seconds": 2.0,
+  "result": "refused",
+  "id": "target",
+  "request_sent": false,
+  "reason": "started_mismatch",
+  "message": "started_millis is 1791370099243, not the expected 1791370099242: another session now has this ID",
+  "started_millis": 1791370099243,
+  "expected_started_millis": 1791370099242,
+  "hint": "read it again with `kilix pty status target --json`; kill only if the ID still names the session you meant"
+}
+''')
+REFUSED_CANNOT_BIND = json.loads('''
+{
+  "schema": "kilix.pty/v1",
+  "runtime": "/run/user/1000/kilix-pty-broker",
+  "timeout_seconds": 2.0,
+  "result": "refused",
+  "id": "target",
+  "request_sent": false,
+  "reason": "cannot_bind",
+  "message": "this session's broker is an older build that cannot check its identity, so nothing was done; a person can end it with `kilix pty kill target --yes` (without --expect-started)",
+  "started_millis": 1791370102798,
+  "hint": "a person can run: kilix pty kill target --yes   (an agent stops here and reports)"
+}
+''')
+# Spec-shaped, NOT captured from a real run (kilix has not captured it): a kill
+# with no identifiable caller, off a terminal.
 REFUSED_CALLER_UNIDENTIFIED = receipt(
     "refused", reason="caller_unidentified", request_sent=False,
     message="cannot tell which pane asked; pass --no-caller-check to end it "
@@ -117,8 +153,11 @@ def response(match, stdout=None, code=0, stderr="", sleep=0):
             "stderr": stderr, "sleep": sleep}
 
 
-def kill_response(doc, sid=DETACHED["id"]):
-    return response(["pty", "kill", sid], doc, EXIT[doc["result"]])
+def kill_response(doc, sid=DETACHED["id"], sleep=0):
+    """The scripted answer to `kill SID`: `doc` with its ID set to SID (the
+    captures name their session "target")."""
+    return response(["pty", "kill", sid], dict(doc, id=sid),
+                    EXIT[doc["result"]], sleep=sleep)
 
 
 _SCRIPT = '''#!{python}

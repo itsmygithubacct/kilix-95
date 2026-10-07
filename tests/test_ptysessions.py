@@ -511,7 +511,7 @@ finally:
     T.apply_flavor("95")
 
 # a window closed while a kill is in flight is held open and says why
-fake.set([F.response(["pty", "kill"], F.VERIFIED, 0, sleep=1)]
+fake.set([F.kill_response(F.VERIFIED, sleep=1)]
          + F.standard_responses())
 select(win, 1)
 win._confirmed_end(DET, F.DETACHED["started_millis"])

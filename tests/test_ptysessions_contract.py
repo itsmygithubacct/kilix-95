@@ -219,6 +219,16 @@ for bound in (F.REFUSED_CANNOT_BIND, F.REFUSED_CALLER_UNIDENTIFIED):
     assert icon == "warn" and "refused" in said and bound["reason"] in said
     assert "Nothing was ended" in said and "has ended" not in said, said
     assert bound["request_sent"] is False
+# the real captured cannot_bind receipt: its own message is shown, after ours
+real = P.receipt_message(F.doc(F.REFUSED_CANNOT_BIND, id=sid))[1]
+assert "without --expect-started" in real and "older build" in real, real
+assert "Nothing was ended" in real and "kilix pty kill " + sid in real, real
+# a real receipt names the session it was printed for ("target"): another
+# session's receipt is not believed
+fake.set([F.response(["pty", "kill"], F.VERIFIED, 0)])
+assert P.end_session(sid, started, L)["result"] == "no_receipt"
+fake.set([F.kill_response(F.VERIFIED)])
+assert P.end_session(sid, started, L)["result"] == "verified_absent"
 assert "not_found" in text["not_found"][1]
 assert "has ended" not in text["refused"][1] + text["not_found"][1]
 
