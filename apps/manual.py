@@ -129,6 +129,10 @@ def _run_man(page):
 
 
 class _ReadOnlyTextArea(W.TextArea):
+    """Scrollable, selectable, copyable text that nothing can edit: not the
+    keyboard, a paste, nor the accessibility service."""
+    read_only = True
+
     def on_key(self, ev):
         rows = self._rows()
         if ev.key == "ArrowUp":
@@ -144,7 +148,7 @@ class _ReadOnlyTextArea(W.TextArea):
         elif ev.key == "End":
             self.sb.pos = max(0, len(self.lines) - rows)
         else:
-            return False
+            return super().on_key(ev)      # select and copy; edits refuse
         self.sb.total, self.sb.page = len(self.lines), rows
         self.sb.clamp()
         self.invalidate()

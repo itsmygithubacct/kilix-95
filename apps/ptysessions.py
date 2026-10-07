@@ -13,7 +13,9 @@ subprocess runs on a worker thread and is polled from a tick hook, like Task
 Manager's refresh and Help Search's lookup, so a wedged broker cannot freeze
 the desktop.
 """
+from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor
+from itertools import accumulate
 import json
 import os
 import re
@@ -40,7 +42,6 @@ LIST_TIMEOUT = 20                 # seconds; kilix itself bounds each broker cal
 VIEW_TIMEOUT = 30
 KILL_TIMEOUT = 60                 # grace period + verification polling + guard
 REFRESH_SECONDS = 5.0
-COMMAND_LIMIT = 240               # characters of the command the dialog shows
 
 _ID_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
 _CONTROLS = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f"
@@ -318,12 +319,14 @@ def receipt_message(receipt):
                         f"The broker no longer lists it{after}.")
     if result == "uncertain":
         said = ("The end request WAS sent, but the session's absence could "
-                "not be verified." if sent else
-                "The end request was NOT sent: the session could not be "
-                "looked up.")
+                "not be verified." if sent is True else
+                "Nothing was sent: the session could not be looked up, so no "
+                "end request went out." if sent is False else
+                "Whether the end request was sent is not stated.")
+        more = f"\n{detail}" if detail else ""
         return "warn", (f"Session {sid}: uncertain.\n\nResult: uncertain"
-                        f"{' (' + reason + ')' if reason else ''}\n{said}\n"
-                        "Refresh the list before trying again.")
+                        f"{' (' + reason + ')' if reason else ''}\n{said}"
+                        f"{more}\nRefresh the list before trying again.")
     if result == "not_found":
         return "warn", (f"Session {sid} was not found.\n\nResult: not_found\n"
                         "Nothing was ended; it may already be gone.")
@@ -441,32 +444,72 @@ def journal_details(row, runtime):
 
 # ── widgets ──────────────────────────────────────────────────────────────────
 
+_ADVANCES = {}                               # font -> {character: pixels}
+
+
+def _advance_table(font):
+    return _ADVANCES.setdefault(font, {})
+
+
+def wrap_lines(text, width, font=None, words=False):
+    """Visual lines of `text` no wider than `width` pixels, losing nothing.
+
+    Breaks anywhere (words=False, for output and IDs) or, with words=True,
+    at the last space of a row when there is one (for prose); a word wider
+    than a row is split.
+
+    Linear in the text. Measuring a string through PIL costs ~130 us per
+    call plus ~1 us per character, so rows are not found by re-measuring
+    prefixes. Each distinct character is measured once, the line's running
+    widths are accumulated, and every row end is one bisection. The sum of
+    advances is never narrower than the shaped string by more than a pixel
+    (kerning only tightens), so a row that fits by the table fits drawn.
+    """
+    font = font or T.FONT
+    table = _advance_table(font)
+    out = []
+    for line in text.split("\n"):
+        if not line:
+            out.append("")
+            continue
+        for char in set(line).difference(table):
+            table[char] = font.getlength(char)
+        running = list(accumulate(map(table.__getitem__, line)))
+        total, start = len(line), 0
+        while start < total:
+            base = running[start - 1] if start else 0.0
+            end = bisect_right(running, base + width, start)
+            if end >= total:
+                out.append(line[start:].rstrip() if words else line[start:])
+                break
+            end = max(end, start + 1)
+            if words and line[end] != " ":
+                space = line.rfind(" ", start + 1, end)
+                if space > start:
+                    end = space
+            out.append(line[start:end].rstrip() if words else line[start:end])
+            start = end
+            while words and start < total and line[start] == " ":
+                start += 1
+    return out
+
+
 class _Viewer(_ReadOnlyTextArea):
     """Read-only text that wraps to its width without losing a character."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.source = ""
+        self._laid_out = None                # (source, width) of self.lines
 
     def show(self, source, keep_scroll=False):
         pos = self.sb.pos
         self.source = source
         width = max(1, self.w - T.SCROLL_W - 10)
-        lines = []
-        for original in source.expandtabs(4).split("\n"):
-            line = original
-            while line and T.text_w(self.font, line) > width:
-                low, high = 1, len(line)
-                while low < high:
-                    middle = (low + high + 1) // 2
-                    if T.text_w(self.font, line[:middle]) <= width:
-                        low = middle
-                    else:
-                        high = middle - 1
-                lines.append(line[:max(1, low)])
-                line = line[max(1, low):]
-            lines.append(line)
-        self.set_text("\n".join(lines))
+        if self._laid_out != (source, width):
+            self.set_text("\n".join(
+                wrap_lines(source.expandtabs(4), width, self.font)))
+            self._laid_out = (source, width)
         if keep_scroll:
             self.sb.pos = pos
             self.sb.total, self.sb.page = len(self.lines), self._rows()
@@ -542,26 +585,41 @@ class _ColumnList(W.ListBox):
 
 
 def _wrap_px(text, width):
-    """Break text into lines of at most `width` pixels (a long word is split)."""
-    lines = []
-    for original in text.split("\n"):
-        line = original
-        while line and T.text_w(T.FONT, line) > width:
-            low, high = 1, len(line)
-            while low < high:
-                middle = (low + high + 1) // 2
-                if T.text_w(T.FONT, line[:middle]) <= width:
-                    low = middle
-                else:
-                    high = middle - 1
-            cut = max(1, low)
-            space = line.rfind(" ", 0, cut)
-            if space > 0 and cut < len(line):
-                cut = space
-            lines.append(line[:cut].rstrip())
-            line = line[cut:].lstrip(" ")
-        lines.append(line)
-    return "\n".join(lines)
+    """Prose wrapped to `width` pixels; a word wider than that is split."""
+    return "\n".join(wrap_lines(text, width, words=True))
+
+
+class ConfirmEnd(wm.Window):
+    """The End Session confirmation: the complete ID and command, wrapped in
+    a scrollable read-only body (nothing is shortened), and Cancel is the
+    default. Calls on_confirm() only from the End Session button."""
+
+    def __init__(self, desk, sid, command, on_confirm):
+        super().__init__(desk, "End Session", 440, 340, icon="question",
+                         resizable=False, modal=True)
+        cw, ch = self.client_size()
+        self.sid, self.command, self.on_confirm = sid, command, on_confirm
+        self.add(W.Label(56, 16, "End this session?", bold=True))
+        self.view = self.add(_Viewer(12, 52, cw - 24, 156, ""))
+        self.view.accessibility_name = "Session ID and command to end"
+        self.view.show(f"Session ID:\n{sid}\n\nCommand:\n{command}")
+        warning = _wrap_px("The program running in it will be terminated, and "
+                           "anything in it that is not saved is lost.", cw - 24)
+        for i, line in enumerate(warning.split("\n")):
+            self.add(W.Label(12, 216 + i * 14, line))
+        by = ch - 33
+        self.b_end = self.add(W.Button(cw - 204, by, 96, 23, "End Session",
+                                       cb=self._end))
+        self.b_cancel = self.add(W.Button(cw - 100, by, 88, 23, "Cancel",
+                                          cb=self.close, default=True))
+        self.set_focus(self.b_cancel)
+
+    def _end(self):
+        self.close()
+        self.on_confirm()
+
+    def draw_client(self, d, img):
+        icons.paint(img, "question", 14, 10, 32)
 
 
 class OutputWindow(wm.Window):
@@ -960,22 +1018,10 @@ class PtySessions(wm.Window):
                       f"{why}", icon="warn")
             return
         sid, started = session["id"], session["started_millis"]
-        command = clean_text(session.get("command"))
-        shown = command if len(command) <= COMMAND_LIMIT else \
-            command[:COMMAND_LIMIT] + "…"
-        note = "" if shown == command else \
-            f"\n(The command is {len(command)} characters; the first " \
-            f"{COMMAND_LIMIT} are shown.)"
-        text = (f"End session {sid}?\n\nCommand:\n{_wrap_px(shown, 250)}"
-                f"{note}\n\nThe program running in it will be terminated, and "
-                "anything in it that is not saved is lost.")
-
-        def answered(label):
-            if label == "End Session":
-                self._confirmed_end(sid, started)
-
-        wm.msgbox(self.desk, "End Session", text, icon="question",
-                  buttons=("End Session", "Cancel"), cb=answered, default=1)
+        command = clean_text(session.get("command"), multiline=True)
+        self.desk.wm.add(ConfirmEnd(
+            self.desk, sid, command,
+            lambda: self._confirmed_end(sid, started)))
 
     def _confirmed_end(self, sid, started):
         if self._submit("kill", end_session, sid, started,

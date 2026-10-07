@@ -63,22 +63,34 @@ JOURNAL_VIEW = dict(HEADER, id="90d1e57a2c4b8f36",
 
 
 def receipt(result, sid=DETACHED["id"], reason=None, request_sent=True,
-            message="", started=DETACHED["started_millis"], **extra):
+            message="", **extra):
+    """A kill receipt with exactly the fields the real `kilix pty kill` prints
+    for that case (captured from the real launcher in the B1 review): only
+    receipts that polled for absence carry started_millis and waited_ms."""
     return dict(HEADER, result=result, id=sid, request_sent=request_sent,
-                reason=reason, message=message, started_millis=started,
-                waited_ms=151, **extra)
+                reason=reason, message=message, **extra)
 
 
-VERIFIED = receipt("verified_absent", message="the session is gone")
+VERIFIED = receipt("verified_absent", message="the session is gone",
+                   started_millis=DETACHED["started_millis"], waited_ms=151)
+# request sent, the session was still listed after the grace period
 UNCERTAIN = receipt("uncertain", reason="still_listed",
-                    message="still listed after the grace period")
-REFUSED_OWN = receipt("refused", reason="own_session", request_sent=False,
-                      message="refusing to end the session this terminal "
-                              "runs in")
-REFUSED_MISMATCH = receipt("refused", reason="started_mismatch",
-                           request_sent=False,
-                           message="the session was restarted",
-                           expected_started_millis=1)
+                    message="still listed after the grace period",
+                    started_millis=DETACHED["started_millis"], waited_ms=3500)
+# the lookup failed, so nothing was sent
+UNCERTAIN_UNSENT = receipt(
+    "uncertain", reason="status_failed", request_sent=False,
+    message="could not look the session up; nothing was sent: "
+            "kitty-pty-broker: query session: timed out")
+REFUSED_OWN = receipt(
+    "refused", reason="own_session", request_sent=False,
+    message="that is this pane's own session; ending it would end this "
+            "program. Run the kill from another pane")
+REFUSED_MISMATCH = receipt(
+    "refused", reason="started_mismatch", request_sent=False,
+    message="started_millis is 1791337517862, not the expected 1: another "
+            "session now has this ID",
+    started_millis=DETACHED["started_millis"], expected_started_millis=1)
 NOT_FOUND_RECEIPT = receipt("not_found", request_sent=False,
                             message="no such session")
 

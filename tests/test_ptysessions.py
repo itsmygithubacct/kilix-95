@@ -239,37 +239,67 @@ assert dialogs[-1][0] == "Preview" and "broker timed out" in dialogs[-1][1]
 modal().close()
 fake.set(F.standard_responses())
 
-# ── End Session: confirmation names the exact ID and command ───────────────
+# ── End Session: confirmation shows the complete ID and command ────────────
+def confirmation():
+    return H.find_window(d, "ConfirmEnd")
+
+
 select(win, 1)
 fake.clear()
 del dialogs[:]
 press(win, "End Session…")
-title, text, kw = dialogs[-1]
-assert title == "End Session" and DET in text, text
-assert "".join(text.split()).count("".join('sh -c echo "build ok"; sleep 300'.split())) == 1, text
-assert kw["buttons"] == ("End Session", "Cancel") and kw["default"] == 1
-assert "The program running in it will be terminated" in " ".join(
-    text.split()), text
-dlg = modal()
-assert dlg is not None
+dlg = confirmation()
+assert dlg is not None and dlg.modal and dlg is modal() and dialogs == []
+assert dlg.sid == DET and dlg.command == 'sh -c echo "build ok"; sleep 300'
+assert DET in dlg.view.source and dlg.command in dlg.view.source
+assert [b.text for b in dlg.widgets if isinstance(b, W.Button)] == [
+    "End Session", "Cancel"]
+assert dlg.b_cancel.default and not dlg.b_end.default      # Cancel is default
+assert dlg.focus is dlg.b_cancel
+labels = " ".join(w.text for w in dlg.widgets if isinstance(w, W.Label))
+assert "The program running in it will be terminated" in labels, labels
 press(dlg, "Cancel")                              # declining ends nothing
 settle(win)
 assert modal() is None and kill_calls() == [], fake.calls()
+for key in ("Enter", "Escape", " "):              # default-key paths: no kill
+    win._end()
+    H.key(d, key)
+    settle(win)
+    assert modal() is None and kill_calls() == [], (key, fake.calls())
 
-# a long command is shown bounded, and says so
-long_cmd = "run-" + "x" * 400
-sessions = [F.doc(F.DETACHED, command=long_cmd)]
+# the whole ID and the whole command are shown, wrapped, nothing cut
+long_id = "W" * 64
+long_cmd = "run-" + "x" * 600 + " --target alpha"
+sessions = [F.doc(F.DETACHED, id=long_id, command=long_cmd)]
 fake.set([F.response(["pty", "list"], F.doc(F.LIST, sessions=sessions,
                                             unreachable=[]))])
 win.refresh()
 settle(win)
 select(win, 0)
 win._end()
-text = dialogs[-1][1]
-flat = text.replace("\n", "")
-assert "first 240 are shown" in flat and "run-" + "x" * 200 in flat, text
-assert "x" * 300 not in flat, "the whole command was shown"
-modal().close()
+dlg = confirmation()
+shown = "".join(dlg.view.lines)
+assert long_id in shown and long_cmd in shown, dlg.view.lines
+assert all(T.text_w(dlg.view.font, line) <= dlg.view.w - T.SCROLL_W - 8
+           for line in dlg.view.lines), "a row runs past the dialog"
+assert len(dlg.view.lines) > 8, "a long command was not wrapped"
+first = list(dlg.view.lines)
+dlg.close()
+# two commands that differ only at the very end show different confirmations
+variants = []
+for suffix in ("alpha", "bravo"):
+    cmd = "runner " + "a" * 240 + f" --target {suffix}"
+    fake.set([F.response(["pty", "list"], F.doc(F.LIST, sessions=[
+        F.doc(F.DETACHED, command=cmd)], unreachable=[]))])
+    win.refresh()
+    settle(win)
+    select(win, 0)
+    win._end()
+    variants.append(list(confirmation().view.lines))
+    confirmation().close()
+assert variants[0] != variants[1]
+assert "".join(variants[0]).endswith("--target alpha")
+assert "".join(variants[1]).endswith("--target bravo")
 fake.set(F.standard_responses())
 win.refresh()
 settle(win)
@@ -293,7 +323,8 @@ modal().close()
 
 # every other result is shown for what it is, never as an ending
 for doc, token, forbidden in (
-        (F.UNCERTAIN, "uncertain", "has ended"),
+        (F.UNCERTAIN, "still_listed", "has ended"),
+        (F.UNCERTAIN_UNSENT, "status_failed", "has ended"),
         (F.REFUSED_MISMATCH, "started_mismatch", "has ended"),
         (F.NOT_FOUND_RECEIPT, "not_found", "has ended")):
     fake.set([F.kill_response(doc)] + F.standard_responses())
@@ -305,6 +336,10 @@ for doc, token, forbidden in (
     title, text, kw = dialogs[-1]
     assert token in text and forbidden not in text, (token, text)
     assert kw["icon"] == "warn", (token, kw)
+    if token == "status_failed":
+        assert "Nothing was sent" in text and "WAS sent" not in text, text
+    if token == "still_listed":
+        assert "WAS sent" in text and "Nothing was sent" not in text, text
     settle(win)
     if modal():
         modal().close()

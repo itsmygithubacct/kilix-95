@@ -133,8 +133,8 @@ assert fake.calls()[-1] == ["pty", "journals", "show",
 
 # ── end_session: exactly the contract's receipts, truthfully ────────────────
 sid, started = F.DETACHED["id"], F.DETACHED["started_millis"]
-for doc in (F.VERIFIED, F.UNCERTAIN, F.REFUSED_OWN, F.REFUSED_MISMATCH,
-            F.NOT_FOUND_RECEIPT):
+for doc in (F.VERIFIED, F.UNCERTAIN, F.UNCERTAIN_UNSENT, F.REFUSED_OWN,
+            F.REFUSED_MISMATCH, F.NOT_FOUND_RECEIPT):
     fake.set([F.kill_response(doc)])
     fake.clear()
     got = P.end_session(sid, started, L)
@@ -201,8 +201,17 @@ assert "verified_absent" in text["verified_absent"][1]
 assert text["uncertain"][0] == "warn" and "uncertain" in text["uncertain"][1]
 assert "WAS sent" in text["uncertain"][1] and "Refresh" in text["uncertain"][1]
 assert "has ended" not in text["uncertain"][1]
-assert "NOT sent" in P.receipt_message(F.doc(
-    F.UNCERTAIN, request_sent=False, reason="status_timeout"))[1]
+unsent = P.receipt_message(F.UNCERTAIN_UNSENT)[1]
+assert "status_failed" in unsent and "Nothing was sent" in unsent, unsent
+assert "WAS sent" not in unsent and "has ended" not in unsent
+assert "Nothing was sent" in P.receipt_message(F.doc(
+    F.UNCERTAIN_UNSENT, reason="status_timeout"))[1]
+# the real receipts omit started_millis / waited_ms when nothing was polled
+for bare in (F.UNCERTAIN_UNSENT, F.REFUSED_OWN, F.NOT_FOUND_RECEIPT):
+    assert "started_millis" not in bare and "waited_ms" not in bare, bare
+assert "waited_ms" not in F.REFUSED_MISMATCH
+assert F.VERIFIED["waited_ms"] and F.VERIFIED["started_millis"]
+assert P.receipt_message(F.VERIFIED)[0] == "info"
 assert "own_session" in text["refused"][1] and "Nothing was ended" in text["refused"][1]
 assert "not_found" in text["not_found"][1]
 assert "has ended" not in text["refused"][1] + text["not_found"][1]
