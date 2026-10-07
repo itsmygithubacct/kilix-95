@@ -53,7 +53,8 @@ def modal():
 
 
 def button(win, text):
-    found = [w for w in win.widgets if isinstance(w, W.Button) and w.text == text]
+    found = [w for w in win.widgets if isinstance(w, W.Button)
+             and w.text == text and w.visible]
     assert len(found) == 1, (text, [w.text for w in win.widgets
                                     if isinstance(w, W.Button)])
     return found[0]
@@ -81,18 +82,20 @@ d.taskbar.open_start_menu()
 top = d.menus.stack[0].items
 programs = [i for i in top if i.label == "Programs"][0].submenu
 accessories = [i for i in programs if i.label == "Accessories"][0].submenu
-entry = [i for i in accessories if i.label == "PTY Session Manager"]
+entry = [i for i in accessories if i.label == "PTY Sessions"]
 assert len(entry) == 1, [i.label for i in accessories]
 assert entry[0].icon == "ptysessions" and callable(entry[0].action)
 labels = [i.label for i in accessories if i.label != "-"]
-assert labels.index("Paint") < labels.index("PTY Session Manager") < labels.index(
+assert labels.index("Paint") < labels.index("PTY Sessions") < labels.index(
     "Task Manager"), labels
-# the older Programs entry that opens the broker's TUI keeps its own label
-assert [i.label for i in programs].count("PTY Sessions") == 1
-assert [i.label for i in programs if i.label == "PTY Session Manager"] == []
+# the broker's TUI entry in Programs is "PTY Sessions (Terminal)"; the plain
+# name belongs to this app alone
+assert [i.label for i in programs].count("PTY Sessions (Terminal)") == 1
+assert "PTY Sessions" not in [i.label for i in programs]
+assert "PTY Session Manager" not in labels
 d.menus.close_all()
 from apps import controlpanel
-assert ("PTY Session Manager", "ptysessions", "ptysessions", None) \
+assert ("PTY Sessions", "ptysessions", "ptysessions", None) \
     in controlpanel.CONTROL_ITEMS
 for size in (16, 32):
     image = icons.get("ptysessions", size)
@@ -156,16 +159,19 @@ def enabled(win):
 
 select(win, 1)                                   # detached
 assert enabled(win) == {"Refresh": True, "Observe": True, "Preview": True,
-                        "Attach": True, "End Session…": True}, enabled(win)
+                        "Attach": True, "End Session…": True,
+                        "Open in Terminal": True}, enabled(win)
 select(win, 0)                                   # attached: not attachable
 assert enabled(win)["Attach"] is False and enabled(win)["Observe"] is True
 assert enabled(win)["End Session…"] is True
 select(win, 2)                                   # unreachable: nothing works
 assert enabled(win) == {"Refresh": True, "Observe": False, "Preview": False,
-                        "Attach": False, "End Session…": False}, enabled(win)
+                        "Attach": False, "End Session…": False,
+                        "Open in Terminal": True}, enabled(win)
 win.list.sel = -1
 win._sync_buttons()
-assert not any(v for k, v in enabled(win).items() if k != "Refresh")
+assert not any(v for k, v in enabled(win).items()
+               if k not in ("Refresh", "Open in Terminal"))
 
 # ── observe / attach open a Kilix tab running the exact kilix pty command ──
 del launches[:]
@@ -189,6 +195,16 @@ assert launches == [], launches
 select(win, 1)
 win.list.on_activate(win.list.items[1])          # Enter / double-click observes
 assert launches[-1][1].endswith(f"pty observe {DET}"), launches
+
+# Open in Terminal is the same manager as Start > Programs > PTY Sessions
+# (Terminal): it calls shell.open_pty_manager and nothing else
+terminal = []
+d.shell.open_pty_manager = lambda: terminal.append("tui") or True
+del launches[:]
+select(win, 2)                                   # works with nothing usable
+press(win, "Open in Terminal")
+assert terminal == ["tui"] and launches == [], (terminal, launches)
+select(win, 1)
 
 # a launcher path with spaces is quoted for the tab's shell
 P.kilix_launcher = lambda: "/srv/my kilix/kilix"
@@ -232,6 +248,8 @@ title, text, kw = dialogs[-1]
 assert title == "End Session" and DET in text, text
 assert "".join(text.split()).count("".join('sh -c echo "build ok"; sleep 300'.split())) == 1, text
 assert kw["buttons"] == ("End Session", "Cancel") and kw["default"] == 1
+assert "The program running in it will be terminated" in " ".join(
+    text.split()), text
 dlg = modal()
 assert dlg is not None
 press(dlg, "Cancel")                              # declining ends nothing
@@ -373,7 +391,8 @@ win.refresh()
 settle(win)
 assert win.list.items == [] and win.session_status.startswith("0 sessions")
 assert "No persistent sessions" in win.details.source
-assert not any(v for k, v in enabled(win).items() if k != "Refresh")
+assert not any(v for k, v in enabled(win).items()
+               if k not in ("Refresh", "Open in Terminal"))
 # F5 refreshes
 fake.set(F.standard_responses())
 fake.clear()
@@ -384,10 +403,13 @@ assert fake.calls() == [["pty", "list", "--json"]] and len(win.list.items) == 3
 # ── archived journals ───────────────────────────────────────────────────────
 win._switch(1)
 settle(win)
+press(win, "Open in Terminal")                   # also on the journals page
+assert terminal == ["tui", "tui"], terminal
 assert win.tabs.active == 1 and win.jlist.visible and not win.list.visible
 assert [i[2]["journal"]["id"] for i in win.jlist.items] == ["90d1e57a2c4b8f36"]
 assert win.journal_status == "1 archived journal"
-assert enabled(win) == {"Refresh": True, "View Journal…": False}, enabled(win)
+assert enabled(win) == {"Refresh": True, "View Journal…": False,
+                        "Open in Terminal": True}, enabled(win)
 win.set_focus(win.jlist)
 H.key(d, "ArrowDown")
 assert win._selected_journal() is not None and win.b_jview.enabled

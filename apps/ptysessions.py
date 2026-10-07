@@ -603,7 +603,7 @@ class PtySessions(wm.Window):
 
     def __init__(self, desk, arg=None):
         super().__init__(desk, "PTY Sessions", 720, 540, icon="ptysessions")
-        self.min_w, self.min_h = 580, 400
+        self.min_w, self.min_h = 700, 400
         cw, ch = self.client_size()
         self.pool = ThreadPoolExecutor(max_workers=3)
         self.page = 0
@@ -639,6 +639,9 @@ class PtySessions(wm.Window):
         self.b_end = self._add(0, W.Button(
             0, 0, 120, BTN_H, "End Session…", cb=self._end))
 
+        self.b_terminal = self._add(0, W.Button(
+            0, 0, 130, BTN_H, "Open in Terminal", cb=self._open_terminal))
+
         self.jlist = self._add(1, _ColumnList(
             M, 0, 0, 0, JOURNAL_COLUMNS, on_select=self._select_journal,
             on_activate=lambda item: self._view_journal()))
@@ -650,6 +653,8 @@ class PtySessions(wm.Window):
         self.b_jview = self._add(1, W.Button(
             0, 0, 120, BTN_H, "View Journal…", cb=self._view_journal,
             default=True))
+        self.b_jterminal = self._add(1, W.Button(
+            0, 0, 130, BTN_H, "Open in Terminal", cb=self._open_terminal))
         for button, name in ((self.b_refresh, "Refresh sessions"),
                              (self.b_jrefresh, "Refresh journals")):
             button.accessibility_name = name
@@ -679,11 +684,11 @@ class PtySessions(wm.Window):
             det.x, det.y, det.w, det.h = M, det_y, cw - 2 * M, DETAIL_H
         x = M
         for button in (self.b_refresh, self.b_observe, self.b_preview,
-                       self.b_attach, self.b_end):
+                       self.b_attach, self.b_end, self.b_terminal):
             button.x, button.y = x, btn_y
             x += button.w + 8
         x = M
-        for button in (self.b_jrefresh, self.b_jview):
+        for button in (self.b_jrefresh, self.b_jview, self.b_jterminal):
             button.x, button.y = x, btn_y
             x += button.w + 8
 
@@ -962,7 +967,7 @@ class PtySessions(wm.Window):
             f"\n(The command is {len(command)} characters; the first " \
             f"{COMMAND_LIMIT} are shown.)"
         text = (f"End session {sid}?\n\nCommand:\n{_wrap_px(shown, 250)}"
-                f"{note}\n\nThe program running in it is terminated, and "
+                f"{note}\n\nThe program running in it will be terminated, and "
                 "anything in it that is not saved is lost.")
 
         def answered(label):
@@ -977,6 +982,10 @@ class PtySessions(wm.Window):
                         own=own_session_id(), ctx={"id": sid}):
             self.session_status = f"Ending session {sid}…"
             self.invalidate()
+
+    def _open_terminal(self):
+        """The same persistent-session TUI as Start > Programs."""
+        self.desk.shell.open_pty_manager()
 
     def _view_journal(self):
         row = self._selected_journal()
