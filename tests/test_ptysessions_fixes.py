@@ -355,6 +355,16 @@ with mock.patch.object(P, "_LAYOUT_POOL", HeldPool()) as held:
     assert confirmed == []
     dlg.close()
 
+# `complete` itself: a viewer that is fully laid out stops being complete the
+# moment it records a failure, whatever else it remembers
+probe = P._Viewer(0, 0, 300, 100, "")
+probe.show("short text")
+assert probe.complete
+probe.failed = True
+assert not probe.complete
+probe.failed = False
+assert probe.complete
+
 # the full flow: no kill argv may be produced
 fake.set(F.standard_responses())
 fake.clear()
