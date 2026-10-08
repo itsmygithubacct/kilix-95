@@ -47,6 +47,8 @@ KILL_TIMEOUT = 60                 # grace period + verification polling + guard
 REFRESH_SECONDS = 5.0
 
 _ID_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
+_BIDI_CONTROLS = frozenset("\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e"
+                           "\u2066\u2067\u2068\u2069")
 
 M = 8
 TAB_Y = 4
@@ -73,16 +75,29 @@ def _is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def clean_text(value, multiline=False, limit=None):
-    """Neutralise Unicode control/format characters; multiline keeps LF/tab."""
+def clean_text(value, multiline=False, limit=None, *, escape_format=False):
+    """Neutralise bidi/Cc controls and visibly escape invalid surrogates.
+
+    Keep meaningful formatting (including joiners) in live/output text.
+    Recorded commands opt into visible Cf escapes to expose invisible argv
+    characters. Multiline text retains LF/tab and normalises CR to LF.
+    """
     text = "" if value is None else str(value)
     if multiline:
         text = text.replace("\r\n", "\n").replace("\r", "\n")
     allowed = "\n\t" if multiline else ""
     replacement = "?" if multiline else " "
-    # Cf includes all bidi controls, zero-width formatting and non-BMP tags.
-    text = "".join(replacement if unicodedata.category(char) in ("Cc", "Cf")
-                   and char not in allowed else char for char in text)
+    parts = []
+    for char in text:
+        kind = unicodedata.category(char)
+        if char in _BIDI_CONTROLS or kind == "Cc" and char not in allowed:
+            parts.append(replacement)
+        elif kind == "Cs" or escape_format and kind == "Cf":
+            code = ord(char)
+            parts.append(f"\\u{code:04x}" if code <= 0xffff else f"\\U{code:08x}")
+        else:
+            parts.append(char)
+    text = "".join(parts)
     if limit is not None and len(text) > limit:
         text = text[:limit - 1] + "…"
     return text
@@ -371,7 +386,7 @@ def recorded_command(session):
     if not isinstance(recorded, dict):
         return ""
     argv = recorded.get("argv")
-    command = (clean_text(shlex.join(argv), limit=2048)
+    command = (clean_text(shlex.join(argv), limit=2048, escape_format=True)
                if isinstance(argv, list) and argv and all(
                    isinstance(arg, str) for arg in argv) else "(unknown)")
     suffix = " (truncated)" if recorded.get("truncated") is True else ""
@@ -433,7 +448,7 @@ def session_details(row, runtime, own, now_millis):
             "gone. It is listed because it exists. Its live command, size and start",
             "time are unknown, so Observe, Attach and End Session are",
             "unavailable. Refresh to ask again."]
-        return "\n".join(lines) + "\n"
+        return clean_text("\n".join(lines) + "\n", multiline=True)
     started = session.get("started_millis")
     lines += [
         f"Started: {format_time(started)}"
@@ -463,12 +478,12 @@ def session_details(row, runtime, own, now_millis):
                      "attached.")
     else:
         lines.append("Nothing is attached; it can be observed or attached.")
-    return "\n".join(lines) + "\n"
+    return clean_text("\n".join(lines) + "\n", multiline=True)
 
 
 def journal_details(row, runtime):
     journal = row["journal"]
-    return "\n".join([
+    return clean_text("\n".join([
         f"Session: {clean_text(journal.get('id'))}",
         f"Started: {format_time(journal.get('started_millis'))}",
         f"Ended: {format_time(journal.get('reaped_millis'))}",
@@ -481,7 +496,8 @@ def journal_details(row, runtime):
         f"Runtime: {runtime or 'unknown'}",
         "",
         "View Journal shows a bounded text rendering of what the pane",
-        "displayed; the raw terminal bytes stay in the archive."]) + "\n"
+        "displayed; the raw terminal bytes stay in the archive."]) + "\n",
+        multiline=True)
 
 
 # ── widgets ──────────────────────────────────────────────────────────────────

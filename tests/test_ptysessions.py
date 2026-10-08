@@ -504,8 +504,8 @@ assert enabled(win) == {"Refresh": True, "Observe": False, "Preview": False,
                         "Open in Terminal": True}, enabled(win)
 d.render()
 
-# All Unicode format characters also stay neutralised through the real
-# window, its details widget and the accessibility tree, after a refresh.
+# Recorded format characters are neutralised or visibly escaped through the
+# real window, its details widget and the accessibility tree after a refresh.
 format_controls = "".join(chr(n) for n in range(sys.maxunicode + 1)
                           if unicodedata.category(chr(n)) == "Cf")
 hostile = F.doc(F.RECORDED_UNREACHABLE)

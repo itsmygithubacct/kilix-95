@@ -140,15 +140,18 @@ for surface, text in (("cell", row["cells"][4]), ("accessible", label),
     assert not remaining, (surface, "Bidi_Control survives", remaining)
     assert "recorded at start: sh -c 'echo " in text and "hello'" in text
 
-# Sweep every format/control character in the runtime's Unicode database,
-# including non-BMP tags, zero-width characters, and the C0/C1 controls.
-# Test each individually so command length bounds cannot hide a survivor.
+# Recorded commands visibly escape benign Cf characters, while live/output
+# text preserves them. Bidi controls and C0/C1 controls remain neutralised.
+# Sweep each separately so command length bounds cannot hide a survivor.
 format_controls = [chr(n) for n in range(sys.maxunicode + 1)
                    if unicodedata.category(chr(n)) == "Cf"]
 controls = [chr(n) for n in range(0xa0)
             if unicodedata.category(chr(n)) == "Cc"]
 assert "\u061c" in format_controls and "\U000e007f" in format_controls
 for control in format_controls + controls:
+    code = ord(control)
+    visible = (" " if control in bidi_controls or control in controls else
+               f"\\u{code:04x}" if code <= 0xffff else f"\\U{code:08x}")
     argv = ["sh", "-c", f"echo left{control}right café"]
     fixture = F.doc(F.UNREACHABLE, recorded={"argv": argv, "truncated": False})
     before = F.doc(fixture)
@@ -156,22 +159,83 @@ for control in format_controls + controls:
     details = P.session_details(row, F.RUNTIME, None, now)
     for surface, text in (("cell", row["cells"][4]), ("accessible", label),
                           ("details", details)):
-        assert "recorded at start: sh -c 'echo left right café'" in text, \
+        assert f"recorded at start: sh -c 'echo left{visible}right café'" in text, \
             (surface, f"U+{ord(control):04X}", repr(text))
         assert not any(unicodedata.category(c) == "Cf" for c in text), \
             (surface, f"U+{ord(control):04X}", repr(text))
     assert fixture == before, "display sanitization changed the recorded facts"
     assert "\n" not in label + row["cells"][4]
-    # Multiline snapshots neutralise formatting too, while keeping their
-    # established tab/newline layout and CR-to-LF normalization.
+    # Multiline snapshots retain benign formatting and the established
+    # tab/newline layout and CR-to-LF normalization.
     expected = ("\n" if control == "\r" else control
-                if control in "\n\t" else "?")
+                if control in "\n\t" or control in format_controls
+                and control not in bidi_controls else "?")
     assert P.clean_text(f"left{control}right café", multiline=True) == \
         f"left{expected}right café", f"U+{ord(control):04X}"
 assert P.clean_text("café 界 e\u0301") == "café 界 e\u0301"
 assert P.clean_text("a\t b\r\nc\rd\ne", multiline=True) == "a\t b\nc\nd\ne"
-print(f"Recorded display: 12 Bidi_Control, {len(format_controls)} Cf, "
-      f"{len(controls)} C0/C1 controls neutralised on all three surfaces")
+
+# Every surrogate must be visible data, never a raw UTF-8 encoding failure.
+# Actual non-BMP Unicode remains intact, including JSON surrogate-pair input.
+for code in range(0xd800, 0xe000):
+    arg = f"left{chr(code)}right 😀"
+    fixture = F.doc(F.UNREACHABLE, recorded={"argv": ["echo", arg]})
+    before = F.doc(fixture)
+    _, label, row = P.session_row(fixture, now)
+    details = P.session_details(row, F.RUNTIME, None, now)
+    visible = f"left\\u{code:04x}right 😀"
+    for text in (label, row["cells"][4], details):
+        assert visible in text, f"U+{code:04X} not visibly escaped"
+        assert not any(unicodedata.category(c) == "Cs" for c in text)
+        text.encode("utf-8")
+    assert fixture == before
+    assert P.clean_text(arg, multiline=True) == visible
+assert P.clean_text("👩\u200d💻 😀") == "👩\u200d💻 😀"
+print(f"Recorded display: 12 Bidi_Control and {len(controls)} C0/C1 controls "
+      f"neutralised; {len(format_controls) - 12} benign Cf and 2048 Cs visibly "
+      "escaped on all three surfaces; output preserves benign Cf")
+
+# Remaining formatter callers: JSON runtime/identity/error/receipt fields,
+# plus details' interpolated metadata. Preserve joiners and escape Cs there
+# too; malformed values in otherwise numeric fields cannot reach UTF-8 raw.
+sample = "می\u200cروم 👩\u200d💻 क्\u200dष"
+raw, visible = sample + "\ud800", sample + "\\ud800"
+audit_live = F.doc(F.DETACHED, id=raw, command=raw, cwd=raw, cwd_now=raw,
+                   boot_id=raw, broker_pid=raw, child_pid=raw,
+                   foreground_pgrp=raw, journal_epoch=raw, start_ticks=raw)
+audit_unreachable = F.doc(F.UNREACHABLE, id=raw, error=raw)
+audit_journal = F.doc(F.JOURNALS["journals"][0], id=raw, path=raw,
+                      broker_pid=raw, child_pid=raw)
+fake.set([
+    F.response(["pty", "list"], F.doc(F.LIST, runtime=raw, sessions=[audit_live],
+                                     unreachable=[audit_unreachable])),
+    F.response(["pty", "journals", "list"], F.doc(
+        F.JOURNALS, runtime=raw, journals=[audit_journal])),
+])
+loaded = P.load_sessions(L)
+assert loaded["runtime"] == visible and loaded["sessions"] == [audit_live]
+assert loaded["unreachable"] == [audit_unreachable]
+for source in (audit_live, audit_unreachable):
+    _, label, row = P.session_row(source, now)
+    details = P.session_details(row, raw, None, now)
+    assert visible in label and all(visible in c for c in (row["cells"][0], row["cells"][4]))
+    assert visible in details and "\ud800" not in label + details
+    details.encode("utf-8")
+loaded = P.load_journals(L)
+assert loaded["runtime"] == visible and loaded["journals"] == [audit_journal]
+_, label, row = P.journal_row(audit_journal)
+details = P.journal_details(row, raw)
+assert visible in label and visible in details and "\ud800" not in label + details
+details.encode("utf-8")
+receipt = F.doc(F.UNCERTAIN, message=raw, reason=raw)
+fake.set([F.kill_response(receipt)])
+got = P.end_session(F.DETACHED["id"], F.DETACHED["started_millis"], L)
+assert got["message"] == visible and got["reason"] == raw
+assert visible in P.receipt_message(got)[1]
+assert visible in P.receipt_message(F.doc(receipt, id=raw))[1]
+fake.set([F.response(["pty", "list"], None, 1, sample + "\u061c\x1b")])
+assert P.run_pty(["list"], L)[2] == sample + "  "
+print("Formatter caller audit: runtime, identity, errors, receipts and metadata pass")
 
 # A recording on a reachable row never replaces its live command or fields.
 live = F.doc(F.DETACHED, recorded=recording)
