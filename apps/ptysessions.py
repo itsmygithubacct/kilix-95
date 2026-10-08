@@ -1058,7 +1058,8 @@ class PtySessions(wm.Window):
             # must not make live sessions look absent, nor look current.
             stale = (f" Showing the list from {format_time(self.listed_at)}."
                      if self.listed_at else "")
-            self.session_status = f"Could not list sessions: {failure}{stale}"
+            self.session_status = clean_text(
+                f"Could not list sessions: {failure}{stale}")
             return
         self.runtime = result["runtime"]
         self.listed_at = int(time.time() * 1000)
@@ -1080,7 +1081,7 @@ class PtySessions(wm.Window):
 
     def _done_journals(self, result, failure, context):
         if failure is not None:
-            self.journal_status = f"Could not list journals: {failure}"
+            self.journal_status = clean_text(f"Could not list journals: {failure}")
             return
         self.journals_loaded = True
         self.runtime = result["runtime"] or self.runtime
@@ -1098,7 +1099,8 @@ class PtySessions(wm.Window):
         self.session_status = self.session_summary
         if failure is not None:
             wm.msgbox(self.desk, "Preview",
-                      f"Could not read session {sid}:\n{failure}", icon="error")
+                      clean_text(f"Could not read session {sid}:\n{failure}",
+                                 multiline=True), icon="error")
             return
         cut = (f"Only the last {VIEW_LINES} lines are shown; earlier output "
                "was cut.") if result["truncated"] else \
