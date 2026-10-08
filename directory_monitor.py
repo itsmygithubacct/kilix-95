@@ -21,7 +21,7 @@ ONLYDIR, MASK_ADD = 0x01000000, 0x20000000
 REMOTE_TYPES = frozenset({
     'nfs', 'nfs4', 'cifs', 'smb3', 'smbfs', 'ncpfs', 'afs', 'coda', 'ceph',
     'glusterfs', 'lustre', 'gfs2', 'ocfs2', 'davfs', '9p', 'virtiofs', 'sshfs',
-    'fuse'})
+    'fuse', 'vboxsf', 'gpfs', 'beegfs', 'orangefs', 'pvfs2'})
 
 
 def remote_filesystem(fstype):

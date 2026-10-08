@@ -165,9 +165,14 @@ assert count_scans(Incomplete)>=3, 'An incomplete watch set lost its periodic fa
 # report other clients' changes, so those views keep a slow periodic rescan.
 # A local view stays event-driven even with the same short slow interval.
 local=lambda view:[('/','ext4')]
-for remote in ('nfs4','cifs','smb3','fuse.sshfs','sshfs'):
+for remote in ('nfs4','cifs','smb3','fuse.sshfs','sshfs',
+               'vboxsf','gpfs','beegfs','orangefs','pvfs2'):
     table=lambda view,remote=remote:[('/','ext4'),(view,remote)]
     assert count_scans(native,table=table,slow_interval=.2)>=3, remote+' view was not rescanned'
+# A local mounted view can still have its path renamed by a remote parent.
+# Successful native inotify watches must not suppress that polling fallback.
+remote_parent=lambda view:[('/', 'ext4'), (os.path.dirname(view), 'vboxsf'), (view, 'tmpfs')]
+assert count_scans(native,table=remote_parent,slow_interval=.2)>=3, 'Remote parent did not retain polling'
 assert count_scans(native,table=local,slow_interval=.2)==0, 'A local view was rescanned periodically'
 with tempfile.TemporaryDirectory() as tmp:
     mountinfo=Path(tmp)/'mountinfo'
