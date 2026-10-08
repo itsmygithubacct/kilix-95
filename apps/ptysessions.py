@@ -21,6 +21,7 @@ import shlex
 import subprocess
 import threading
 import time
+import unicodedata
 
 from PIL import ImageFont
 
@@ -46,9 +47,6 @@ KILL_TIMEOUT = 60                 # grace period + verification polling + guard
 REFRESH_SECONDS = 5.0
 
 _ID_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
-_CONTROLS = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f"
-                       "\u200e\u200f\u202a-\u202e\u2066-\u2069]")
-_SINGLE = re.compile("[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 M = 8
 TAB_Y = 4
@@ -76,13 +74,15 @@ def _is_int(value):
 
 
 def clean_text(value, multiline=False, limit=None):
-    """Text from a session, made safe to draw: no escapes, no bidi overrides."""
+    """Neutralise Unicode control/format characters; multiline keeps LF/tab."""
     text = "" if value is None else str(value)
     if multiline:
         text = text.replace("\r\n", "\n").replace("\r", "\n")
-        text = _CONTROLS.sub("?", text)
-    else:
-        text = _SINGLE.sub(" ", text)
+    allowed = "\n\t" if multiline else ""
+    replacement = "?" if multiline else " "
+    # Cf includes all bidi controls, zero-width formatting and non-BMP tags.
+    text = "".join(replacement if unicodedata.category(char) in ("Cc", "Cf")
+                   and char not in allowed else char for char in text)
     if limit is not None and len(text) > limit:
         text = text[:limit - 1] + "…"
     return text

@@ -4,6 +4,8 @@ Runs the app's backend against a fake `kilix pty` executable that prints the
 documents of the kilix.pty/v1 contract. No broker, no Kilix store, no desktop.
 """
 import shlex
+import sys
+import unicodedata
 
 import harness as H  # noqa: F401  (puts the desktop dir on sys.path)
 import pty_fake as F
@@ -123,6 +125,53 @@ for text in (label, row["cells"][4], details):
     assert "$(id)" in text and "echo café" in text
     assert "\x1b" not in text and "\u202e" not in text
 assert "\n" not in label + row["cells"][4]
+
+# The reviewer's reproducer contains all twelve Bidi_Control characters.
+bidi_controls = ("\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e"
+                 "\u2066\u2067\u2068\u2069")
+fixture = F.doc(F.UNREACHABLE, recorded={
+    "argv": ["sh", "-c", "echo " + bidi_controls + "hello"],
+    "truncated": False})
+_, label, row = P.session_row(fixture, now)
+details = P.session_details(row, F.RUNTIME, None, now)
+for surface, text in (("cell", row["cells"][4]), ("accessible", label),
+                      ("details", details)):
+    remaining = [f"U+{ord(c):04X}" for c in bidi_controls if c in text]
+    assert not remaining, (surface, "Bidi_Control survives", remaining)
+    assert "recorded at start: sh -c 'echo " in text and "hello'" in text
+
+# Sweep every format/control character in the runtime's Unicode database,
+# including non-BMP tags, zero-width characters, and the C0/C1 controls.
+# Test each individually so command length bounds cannot hide a survivor.
+format_controls = [chr(n) for n in range(sys.maxunicode + 1)
+                   if unicodedata.category(chr(n)) == "Cf"]
+controls = [chr(n) for n in range(0xa0)
+            if unicodedata.category(chr(n)) == "Cc"]
+assert "\u061c" in format_controls and "\U000e007f" in format_controls
+for control in format_controls + controls:
+    argv = ["sh", "-c", f"echo left{control}right café"]
+    fixture = F.doc(F.UNREACHABLE, recorded={"argv": argv, "truncated": False})
+    before = F.doc(fixture)
+    _, label, row = P.session_row(fixture, now)
+    details = P.session_details(row, F.RUNTIME, None, now)
+    for surface, text in (("cell", row["cells"][4]), ("accessible", label),
+                          ("details", details)):
+        assert "recorded at start: sh -c 'echo left right café'" in text, \
+            (surface, f"U+{ord(control):04X}", repr(text))
+        assert not any(unicodedata.category(c) == "Cf" for c in text), \
+            (surface, f"U+{ord(control):04X}", repr(text))
+    assert fixture == before, "display sanitization changed the recorded facts"
+    assert "\n" not in label + row["cells"][4]
+    # Multiline snapshots neutralise formatting too, while keeping their
+    # established tab/newline layout and CR-to-LF normalization.
+    expected = ("\n" if control == "\r" else control
+                if control in "\n\t" else "?")
+    assert P.clean_text(f"left{control}right café", multiline=True) == \
+        f"left{expected}right café", f"U+{ord(control):04X}"
+assert P.clean_text("café 界 e\u0301") == "café 界 e\u0301"
+assert P.clean_text("a\t b\r\nc\rd\ne", multiline=True) == "a\t b\nc\nd\ne"
+print(f"Recorded display: 12 Bidi_Control, {len(format_controls)} Cf, "
+      f"{len(controls)} C0/C1 controls neutralised on all three surfaces")
 
 # A recording on a reachable row never replaces its live command or fields.
 live = F.doc(F.DETACHED, recorded=recording)

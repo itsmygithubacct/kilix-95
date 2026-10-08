@@ -5,7 +5,9 @@ executable (tests/pty_fake.py). Launching a Kilix tab is stubbed at the shell
 boundary, as the README's test style asks; nothing touches a live broker.
 """
 import os
+import sys
 import time
+import unicodedata
 
 import harness as H
 import pty_fake as F
@@ -500,6 +502,36 @@ assert any(UNR in n and "recorded at start: python3 -c" in n and
 assert enabled(win) == {"Refresh": True, "Observe": False, "Preview": False,
                         "Attach": False, "End Session…": False,
                         "Open in Terminal": True}, enabled(win)
+d.render()
+
+# All Unicode format characters also stay neutralised through the real
+# window, its details widget and the accessibility tree, after a refresh.
+format_controls = "".join(chr(n) for n in range(sys.maxunicode + 1)
+                          if unicodedata.category(chr(n)) == "Cf")
+hostile = F.doc(F.RECORDED_UNREACHABLE)
+hostile["recorded"]["argv"][-1] += format_controls + "\x00\x08\t\n\r\x1b\x7f\x85café"
+fake.set([F.response(["pty", "list"], F.doc(F.LIST, unreachable=[hostile]))])
+win.refresh()
+settle(win)
+select(win, 2)
+recorded_row = win.list.items[2]
+assert recorded_row[2]["session"] == hostile, "recorded facts were changed"
+tree.build()
+names = [n["name"] for n in tree.nodes.values() if n["role"] == "list item"]
+assert recorded_row[1] in names, names
+for text in (recorded_row[2]["cells"][4], recorded_row[1], win.details.source):
+    assert "recorded at start: python3 -c" in text and "build ok" in text
+    assert "café" in text
+    assert all(unicodedata.category(c) not in ("Cc", "Cf")
+               for c in text if c != "\n"), repr(text)
+assert "\n" not in recorded_row[1] + recorded_row[2]["cells"][4]
+assert enabled(win) == {"Refresh": True, "Observe": False, "Preview": False,
+                        "Attach": False, "End Session…": False,
+                        "Open in Terminal": True}, enabled(win)
+fake.clear()
+launches_before = list(launches)
+win._observe(); win._preview(); win._attach(); win._end()
+assert not fake.calls() and launches == launches_before and not win.futures
 d.render()
 
 fake.set(F.standard_responses())
