@@ -394,7 +394,7 @@ The Start menu is built in `taskbar.py`.
 Top-level sections:
 
 - **Programs**: built-in accessories, games, the shared Kilix Applications
-  catalog, browsers, terminals, PTY Sessions, Kilix Temps, Kilix Memory, Tmux
+  catalog, browsers, terminals, PTY Sessions (Terminal), Kilix Temps, Kilix Memory, Tmux
   Manager, BitNet Models, the MS-DOS Prompt/DOSBox caller, user launchers, and
   discovered XDG apps. PowerToys and the optional classic folders appear when
   the full experience is active.
@@ -594,6 +594,7 @@ Notable apps:
 | PowerToys / Disk Defragmenter | shell conveniences and disk-map theater | configuration helpers; the disk is never modified |
 | Help | two-pane guide with live links | link rows use the ordered real-browser dispatcher |
 | System Manual | searchable man-page browser | scans manpath and renders selected pages as text |
+| PTY Sessions | persistent pane session manager | lists broker sessions (attached, detached, unreachable) from `kilix pty list --json`; observes read-only, attaches detached ones, ends one after a named confirmation and shows the kill receipt as received; browses archived journals |
 | Task Manager | running-window list | can switch to windows, request close, or open Run |
 | Recycle Bin | deleted-file browser | restores or purges files from the recycle backing store |
 | Find Files | bounded desktop file search | walks in chunks from a tick hook so large trees do not block the UI |
@@ -742,10 +743,29 @@ the normal case — the first screen prices each model and offers to fetch one.
 One of them is the dictation engine, and both it and Dictation read the same
 copy.
 
-Start ▸ Programs ▸ **PTY Sessions** opens Kilix's persistent-pane TUI in an
+Start ▸ Programs ▸ **PTY Sessions (Terminal)** opens Kilix's persistent-pane TUI in an
 unbrokered manager tab, so the manager does not list or attach to itself. It can
 attach detached panes, refresh their status, or terminate one after explicit
 confirmation.
+
+Start ▸ Programs ▸ Accessories ▸ **PTY Sessions** (also in Control Panel)
+is the desktop window for the same sessions, built only on `kilix pty … --json`
+(schema `kilix.pty/v1`). It lists each session's ID, state (attached, detached
+or **unreachable**, which is shown, never hidden), age, size, command and
+current directory, with a details pane (status fields, runtime path). Rows
+and accessibility names show an unreachable session's startup command as
+**recorded at start**, including a truncation marker when supplied; older
+sessions without a recording retain the unknown-command display. Observe
+opens a Kilix tab running `kilix pty observe ID` (read-only); Preview shows a
+bounded `observe ID --once --text` snapshot in a read-only window labelled as
+untrusted pane output; Attach opens `kilix pty attach ID` for a detached
+session only. End Session… names the exact ID and command, then runs
+`kilix pty kill ID --yes --expect-started MILLIS --json` and shows the receipt
+(`verified_absent`, `uncertain`, `not_found`, `refused`) as received; it is
+never offered for the session the desktop itself runs in. The second page lists
+archived journals (`kilix pty journals list --json`) and shows a bounded text
+rendering. **Open in Terminal** opens the TUI above. The list refreshes every
+five seconds and on F5; every `kilix pty` call runs off the UI thread. Tests use a fake `kilix pty` (`tests/pty_fake.py`).
 
 The Tools tab reports whether tmux-cli's `tb` command is available and offers
 an **Install / repair tb** action. It opens Kilix's immutable tmux-tui/tmux-cli
