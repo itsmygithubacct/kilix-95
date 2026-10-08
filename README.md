@@ -752,7 +752,10 @@ Start ▸ Programs ▸ Accessories ▸ **PTY Sessions** (also in Control Panel)
 is the desktop window for the same sessions, built only on `kilix pty … --json`
 (schema `kilix.pty/v1`). It lists each session's ID, state (attached, detached
 or **unreachable**, which is shown, never hidden), age, size, command and
-current directory, with a details pane (status fields, runtime path). Observe
+current directory, with a details pane (status fields, runtime path). Rows
+and accessibility names show an unreachable session's startup command as
+**recorded at start**, including a truncation marker when supplied; older
+sessions without a recording retain the unknown-command display. Observe
 opens a Kilix tab running `kilix pty observe ID` (read-only); Preview shows a
 bounded `observe ID --once --text` snapshot in a read-only window labelled as
 untrusted pane output; Attach opens `kilix pty attach ID` for a detached

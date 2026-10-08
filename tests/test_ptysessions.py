@@ -484,6 +484,24 @@ win._switch(0)
 assert win.list.visible and not win.jlist.visible
 
 # ── rendering, resizing, closing ────────────────────────────────────────────
+fake.set([F.response(["pty", "list"], F.doc(
+    F.LIST, unreachable=[F.RECORDED_UNREACHABLE]))])
+win.refresh()
+settle(win)
+select(win, 2)
+recorded_row = win.list.items[2]
+assert "recorded at start: python3 -c" in recorded_row[2]["cells"][4]
+assert "recorded at start: python3 -c" in win.details.source
+assert "build ok" in win.details.source
+tree.build()
+names = [n["name"] for n in tree.nodes.values() if n["role"] == "list item"]
+assert any(UNR in n and "recorded at start: python3 -c" in n and
+           "build ok" in n for n in names), names
+assert enabled(win) == {"Refresh": True, "Observe": False, "Preview": False,
+                        "Attach": False, "End Session…": False,
+                        "Open in Terminal": True}, enabled(win)
+d.render()
+
 fake.set(F.standard_responses())
 win.refresh()
 settle(win)

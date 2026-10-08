@@ -3,6 +3,8 @@
 Runs the app's backend against a fake `kilix pty` executable that prints the
 documents of the kilix.pty/v1 contract. No broker, no Kilix store, no desktop.
 """
+import shlex
+
 import harness as H  # noqa: F401  (puts the desktop dir on sys.path)
 import pty_fake as F
 from apps import ptysessions as P
@@ -80,6 +82,55 @@ icon, label, row = P.session_row(F.UNREACHABLE, now)
 assert icon == "warn" and row["state"] == "unreachable"
 assert "UNREACHABLE" in label and F.UNREACHABLE["id"] in label
 assert row["cells"][1] == "UNREACHABLE" and "timeout" in row["cells"][4]
+
+# Startup facts are preserved by the client and identified in both the drawn
+# command cell and its accessible name. They never enable a session action.
+recording = F.RECORDED_UNREACHABLE["recorded"]
+for recorded in (None, dict(argv=None, cwd=None, started_millis=None,
+                            truncated=False), recording,
+                 dict(recording, truncated=True),
+                 dict(argv=[], cwd=None, started_millis=None, truncated=True),
+                 dict(recording, argv="not an array"),
+                 dict(recording, argv=["sh", None])):
+    fixture = F.doc(F.UNREACHABLE, recorded=recorded)
+    fake.set([F.response(["pty", "list"], F.doc(F.LIST, unreachable=[fixture]))])
+    loaded = P.load_sessions(L)["unreachable"][0]
+    assert loaded == fixture, (loaded, fixture)
+    icon, label, row = P.session_row(loaded, now)
+    details = P.session_details(row, F.RUNTIME, None, now)
+    assert icon == "warn" and row["state"] == "unreachable"
+    assert row["cells"][:4] == (fixture["id"], "UNREACHABLE", "?", "?")
+    assert "timeout" in row["cells"][4]
+    assert not P.can_end(loaded)[0]
+    if recorded is None:
+        assert "recorded at start" not in row["cells"][4] + label + details
+    else:
+        for text in (row["cells"][4], label, details):
+            assert "recorded at start:" in text, text
+            assert ("(truncated)" in text) == recorded["truncated"], text
+        argv = recorded["argv"]
+        if isinstance(argv, list) and argv and all(isinstance(a, str) for a in argv):
+            command = label.split("recorded at start: ", 1)[1].removesuffix(" (truncated)")
+            assert shlex.split(command) == argv, command
+        else:
+            assert "(unknown)" in label, label
+
+hostile = F.doc(F.RECORDED_UNREACHABLE)
+hostile["recorded"]["argv"] = ["sh", "-c", "$(id)\n\x1b[2J\u202eecho café"]
+icon, label, row = P.session_row(hostile, now)
+details = P.session_details(row, F.RUNTIME, None, now)
+for text in (label, row["cells"][4], details):
+    assert "$(id)" in text and "echo café" in text
+    assert "\x1b" not in text and "\u202e" not in text
+assert "\n" not in label + row["cells"][4]
+
+# A recording on a reachable row never replaces its live command or fields.
+live = F.doc(F.DETACHED, recorded=recording)
+_, live_label, live_row = P.session_row(live, now)
+_, live_label_before, live_row_before = P.session_row(F.DETACHED, now)
+assert live_label == live_label_before and live_row["cells"] == live_row_before["cells"]
+assert P.session_details(P.session_row(live, now)[2], F.RUNTIME, None, now) == \
+    P.session_details(P.session_row(F.DETACHED, now)[2], F.RUNTIME, None, now)
 
 # ── ids and untrusted text ──────────────────────────────────────────────────
 for ok in ("3fa9c2d41b7e6a05", "a.b_c-9", "x" * 64):

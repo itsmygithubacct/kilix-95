@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import re
+import shlex
 import subprocess
 import threading
 import time
@@ -364,6 +365,19 @@ def receipt_message(receipt):
 
 # ── rows ─────────────────────────────────────────────────────────────────────
 
+def recorded_command(session):
+    """Display startup argv as data, keeping it distinct from a live command."""
+    recorded = session.get("recorded")
+    if not isinstance(recorded, dict):
+        return ""
+    argv = recorded.get("argv")
+    command = (clean_text(shlex.join(argv), limit=2048)
+               if isinstance(argv, list) and argv and all(
+                   isinstance(arg, str) for arg in argv) else "(unknown)")
+    suffix = " (truncated)" if recorded.get("truncated") is True else ""
+    return f"recorded at start: {command}{suffix}"
+
+
 def session_row(session, now_millis):
     """A list row: (icon, accessible text, data) with the cells to draw."""
     state = session_state(session)
@@ -372,6 +386,10 @@ def session_row(session, now_millis):
         error = clean_text(session.get("error"), limit=40) or "no answer"
         cells = (sid, "UNREACHABLE", "?", "?", f"(not answering: {error})", "")
         label = f"{sid}, UNREACHABLE, not answering: {error}"
+        recorded = recorded_command(session)
+        if recorded:
+            cells = (*cells[:4], f"{recorded}; not answering: {error}", "")
+            label += f", {recorded}"
         icon = "warn"
     else:
         age = format_age(session.get("started_millis"), now_millis)
@@ -405,12 +423,14 @@ def session_details(row, runtime, own, now_millis):
     lines = [f"Session: {clean_text(session.get('id'))}",
              f"State: {state}"]
     if state == "unreachable":
+        recorded = recorded_command(session)
         lines += [
             f"Error: {clean_text(session.get('error')) or 'no answer'}",
+            *([recorded] if recorded else []),
             f"Runtime: {runtime or 'unknown'}",
             "",
             "This session's broker did not answer, so it may be wedged or",
-            "gone. It is listed because it exists. Its command, size and start",
+            "gone. It is listed because it exists. Its live command, size and start",
             "time are unknown, so Observe, Attach and End Session are",
             "unavailable. Refresh to ask again."]
         return "\n".join(lines) + "\n"

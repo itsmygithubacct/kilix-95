@@ -38,6 +38,9 @@ ATTACHED = dict(DETACHED, id="a1b2c3d4e5f60718", broker_pid=1574880,
 # `unreachable` example from the contract's list envelope.
 UNREACHABLE = {"id": "0123456789abcdef", "reachable": False,
                "error": "timeout"}
+RECORDED_UNREACHABLE = dict(UNREACHABLE, recorded={
+    "argv": ["python3", "-c", "print('build ok')"], "cwd": "/srv/work",
+    "started_millis": 1791337517862, "truncated": False})
 
 LIST = dict(HEADER, timeout_seconds=1.0, sessions=[DETACHED, ATTACHED],
             unreachable=[UNREACHABLE])
