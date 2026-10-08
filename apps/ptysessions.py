@@ -1116,7 +1116,8 @@ class PtySessions(wm.Window):
         self.journal_status = self.journal_summary
         if failure is not None:
             wm.msgbox(self.desk, "View Journal",
-                      f"Could not read the journal of {sid}:\n{failure}",
+                      clean_text(f"Could not read the journal of {sid}:\n{failure}",
+                                 multiline=True),
                       icon="error")
             return
         cut = (f"Only the last {VIEW_LINES} lines are shown."
@@ -1282,7 +1283,7 @@ class PtySessions(wm.Window):
         jid = journal.get("id")
         if self._submit("journal_view", fetch_journal_text, jid,
                         journal.get("started_millis"), ctx={"id": jid}):
-            self.journal_status = f"Reading the journal of {jid}…"
+            self.journal_status = clean_text(f"Reading the journal of {jid}…")
             self.invalidate()
 
     # ── chrome ───────────────────────────────────────────────────────────────
