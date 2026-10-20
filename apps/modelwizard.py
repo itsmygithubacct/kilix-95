@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 import sys
-import tempfile
 import textwrap
 import time
 
@@ -24,6 +23,14 @@ class ModelWizard(wm.Window):
         self.job = None
         self.error = ''
         self.batch = False
+        self.log_path = ''
+        try:
+            previous = backend.read_json(backend.state_root() / 'model-wizard-last-result.json')
+            if previous.get('ok') is False:
+                self.error = previous.get('error', '')
+                self.log_path = previous.get('error_log', '')
+        except (OSError, ValueError):
+            pass
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.future = self.pool.submit(backend.pages, ensure_sizer=True)
         self.add(W.Label(18, 20, 'Checking available models and sizing recommendations…'))
@@ -129,7 +136,10 @@ class ModelWizard(wm.Window):
                   'affected models. Declining a licence skips those models.', 55, limit=5)
         self.text('The agreement terminal opens as a box inside this desktop. '
                   'Closing it leaves unfinished setup available for retry.', 155, limit=3)
-        self.status = self.add(W.Label(18, 280, self.error[:88]))
+        self.text(self.error, 215, limit=3)
+        if self.log_path:
+            self.text('Diagnostic log: ' + self.log_path, 272, limit=3)
+        self.status = self.add(W.Label(18, 328, ''))
         self.review_button = self.add(W.Button(18, 350, 235, 28, 'Review licences and install', cb=self.start_batch))
         self.review_button.enabled = bool(plans) and self.job is None
         self.finish_button = self.add(W.Button(280, 350, 130, 28, 'Finish' if not plans else 'Later', cb=self.close))
@@ -138,14 +148,14 @@ class ModelWizard(wm.Window):
 
     def start_batch(self):
         if self.job or not backend.pending(): return
-        directory = tempfile.TemporaryDirectory(prefix='kilix-model-wizard-')
-        result = str(Path(directory.name) / 'result.json')
+        directory = backend.new_run_directory()
+        result = str(directory / 'result.json')
+        self.log_path = str(directory / 'transcript.log')
         command = [sys.executable, backend.__file__, 'finish', '--result', result]
         try:
             from apps.licenseterminal import open_window
-            open_window(self.desk, command)
+            open_window(self.desk, command, log_path=self.log_path)
         except Exception as error:
-            directory.cleanup()
             self.error = str(error)
         else:
             self.job = (directory, result, time.monotonic())
@@ -214,20 +224,18 @@ class ModelWizard(wm.Window):
                 try:
                     outcome = backend.read_json(result)
                     self.error = '' if outcome.get('ok') is True else outcome.get('error', 'Setup did not finish.')
+                    self.log_path = outcome.get('error_log') or self.log_path
                 except (OSError, ValueError) as error:
                     self.error = str(error)
                 self.job = None
-                directory.cleanup()
                 self.sync_controllers()
                 self.status.set(self.error[:88])
             elif worker_active(result) is False:
                 self.job = None
-                directory.cleanup()
                 self.error = 'Setup terminal closed before finishing. Review licences to retry.'
                 self.status.set(self.error)
             elif time.monotonic() - started > 30 and not Path(result).with_name('worker.json').exists():
                 self.job = None
-                directory.cleanup()
                 self.error = 'Setup did not start. Review licences to retry.'
                 self.status.set(self.error)
         if self.batch:

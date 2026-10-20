@@ -21,7 +21,7 @@ class Transcript(W.TextArea):
 
 
 class LicenceTerminal(wm.Window):
-    def __init__(self, desk, command):
+    def __init__(self, desk, command, *, log_path=None):
         super().__init__(desk, 'Model licence agreements', 740, 485,
                          icon='terminal', resizable=True)
         self.min_w, self.min_h = 480, 300
@@ -31,13 +31,19 @@ class LicenceTerminal(wm.Window):
         self.process = None
         self.finished = False
         self.answered_at = -1
+        self.log = None
         try:
+            if log_path is not None:
+                fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                self.log = os.fdopen(fd, 'wb')
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 26, 95, 0, 0))
             self.process = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=slave,
                                             start_new_session=True,
                                             env=dict(os.environ, TERM='dumb', NO_COLOR='1'))
         except BaseException:
             os.close(self.master)
+            if self.log is not None:
+                self.log.close()
             raise
         finally:
             os.close(slave)
@@ -74,6 +80,23 @@ class LicenceTerminal(wm.Window):
             self.desk.remove_fd(self.master)
             return
         self.output = (self.output + self.decoder.decode(data))[-4 * 1024 * 1024:]
+        if self.log is not None:
+            try:
+                self.log.write(data)
+                # Retain late errors without rewriting the entire transcript
+                # for every chunk of download progress.
+                if self.log.tell() > 8 * 1024 * 1024:
+                    self.log.seek(0)
+                    self.log.write(self.output.encode('utf-8')[-4 * 1024 * 1024:])
+                    self.log.truncate()
+                self.log.flush()
+            except OSError as error:
+                self.output += f'\nCould not save diagnostic transcript: {error}\n'
+                try:
+                    self.log.close()
+                except OSError:
+                    pass
+                self.log = None
         clean = re.sub(r'\x1b\][^\x07]*(?:\x07|\x1b\\)', '', self.output)
         clean = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', clean)
         clean = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', clean.replace('\r\n', '\n').replace('\r', '\n'))
@@ -109,9 +132,12 @@ class LicenceTerminal(wm.Window):
             self.desk.remove_fd(self.master)
             os.close(self.master)
             self.master = None
+        if self.log is not None:
+            self.log.close()
+            self.log = None
 
 
-def open_window(desk, command):
-    window = LicenceTerminal(desk, command)
+def open_window(desk, command, *, log_path=None):
+    window = LicenceTerminal(desk, command, log_path=log_path)
     desk.wm.add(window)
     return window
