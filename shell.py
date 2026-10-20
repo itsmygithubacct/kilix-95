@@ -14,6 +14,8 @@ import os
 import shutil
 import stat
 import subprocess
+import threading
+import time
 
 from PIL import Image
 from kilix_sdk import content as kilix_content
@@ -33,6 +35,8 @@ import widgets as W
 import wm
 import host as kilix_host
 import storage
+import applications
+import xdgapps
 
 _here = os.path.dirname(os.path.abspath(__file__))
 KILIX_HOME = kilix_host.find_kilix_home()
@@ -121,7 +125,33 @@ class Shell:
         self.grid.window = self       # duck-typed: needs .invalidate/.desk
         self.focus = None             # part of the window duck-type
         self.caret_on = False
+        self.installed_applications = []
+        self._application_result = None
+        self._application_worker = None
+        self._application_scan_after = 0
         self.refresh()
+
+    def poll_applications(self, now=None):
+        """Refresh installed programs off the UI thread; publish on this thread."""
+        if self._application_result is not None:
+            rows, self._application_result = self._application_result, None
+            self.installed_applications = rows
+            self.refresh()
+        if self._application_worker and self._application_worker.is_alive():
+            return
+        now = time.monotonic()
+        if now < self._application_scan_after:
+            return
+        self._application_scan_after = now + 30
+
+        def scan():
+            try:
+                self._application_result = applications.inventory()
+            except Exception:
+                # An unavailable optional provider must not break the desktop.
+                self._application_result = []
+        self._application_worker = threading.Thread(target=scan, daemon=True)
+        self._application_worker.start()
 
     def _load_flavor(self):
         old_wall = tuple(T.DESKTOP)
@@ -233,6 +263,19 @@ class Shell:
                 items.append(entry.tag({"label": n,
                               "icon": icons.for_path(p, entry.isdir),
                               "data": ("path", p)}))
+        # Preserve explicit desktop launchers; generated icons are read-only and
+        # disappear when the corresponding application/model is removed.
+        existing = {item["label"].casefold() for item in items}
+        for entry in xdgapps.scan():
+            if entry["name"].casefold() not in existing:
+                items.append({"label": entry["name"], "icon": xdgapps.icon_for(entry),
+                              "shortcut": True, "data": ("xdg-app", entry)})
+                existing.add(entry["name"].casefold())
+        for row in self.installed_applications:
+            if row["label"].casefold() not in existing:
+                items.append({"label": row["label"], "icon": row["icon"],
+                              "shortcut": True, "data": ("installed-app", row)})
+                existing.add(row["label"].casefold())
         self.grid.set_items(items, preserve=True)
         self.invalidate()
 
@@ -326,6 +369,10 @@ class Shell:
                 self.open_app(app, param)
         elif kind == "launcher":
             self.launch(parse_launcher(arg), arg)
+        elif kind == "xdg-app":
+            xdgapps.launch(self, arg)
+        elif kind == "installed-app":
+            applications.launch(self, arg)
         else:
             self.open_path(arg)
 
@@ -1127,6 +1174,13 @@ class Shell:
             lambda selected: selected and self.open_kilix_pdf(selected),
             filters=[("PDF Documents", "*.pdf"), ("All Files", "*.*")])
 
+    def open_pdf(self, path):
+        """Use the OS default viewer; retain the catalog viewer on other hosts."""
+        if binary := self._resolve_program("okular"):
+            return self.open_in_xpane([binary, os.path.abspath(path)], "Okular",
+                                      icon="doc_text", app_size=(960, 700))
+        return self.open_kilix_pdf(path)
+
     def open_catalog_application(self, content_id, action=None, arguments=()):
         """Render any shared catalog application as a managed desktop box."""
         kilix = os.path.join(KILIX_HOME, "kilix")
@@ -1162,6 +1216,11 @@ class Shell:
             for record in records
             if record.get("kind") == "app"
         ]
+
+    def installed_application_menu_items(self):
+        return [W.MenuItem(row["label"], icon=row["icon"],
+                           action=lambda row=row: applications.launch(self, row))
+                for row in self.installed_applications]
 
     @staticmethod
     def kilix_tui_target():
@@ -1492,7 +1551,7 @@ class Shell:
             self.add_recent(path)
             return
         if low.endswith(".pdf"):
-            self.open_kilix_pdf(path)
+            self.open_pdf(path)
         elif low.endswith(IMG_EXT):
             self.open_app("viewer", path)
         elif low.endswith(AUDIO_EXT):

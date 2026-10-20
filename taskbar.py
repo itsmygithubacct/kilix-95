@@ -520,6 +520,9 @@ class Taskbar:
                 MI("Games", icon="games", submenu=games()),
                 MI("Kilix Applications", icon="folder",
                    submenu=shell.catalog_application_menu_items()),
+                MI("Installed Kilix Applications", icon="folder",
+                   submenu=shell.installed_application_menu_items() or [
+                       MI("(No installed applications or models found)", enabled=False)]),
                 MI("Model Setup…", icon="settings",
                    action=lambda: shell.open_app("modelwizard")),
                 MI("Kilix Workflows…", icon="terminal",

@@ -7,6 +7,7 @@ import re
 import struct
 import subprocess
 import termios
+from datetime import datetime, timezone
 
 import widgets as W
 import wm
@@ -40,6 +41,7 @@ class LicenceTerminal(wm.Window):
             self.process = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=slave,
                                             start_new_session=True,
                                             env=dict(os.environ, TERM='dumb', NO_COLOR='1'))
+            self.log_event(f'Installer started; pid={self.process.pid}')
         except BaseException:
             os.close(self.master)
             if self.log is not None:
@@ -113,10 +115,20 @@ class LicenceTerminal(wm.Window):
         self.yes.enabled = self.no.enabled = False
         self.invalidate()
 
+    def log_event(self, message):
+        if self.log is not None:
+            try:
+                stamp = datetime.now(timezone.utc).isoformat()
+                self.log.write(f'\n[{stamp}] {message}\n'.encode())
+                self.log.flush()
+            except OSError as error:
+                self.output += f'\nCould not save diagnostic transcript: {error}\n'
+
     def tick(self, _now):
         if not self.finished and self.process.poll() is not None:
             self.pump()
             self.finished = True
+            self.log_event(f'Installer exited; status={self.process.returncode}')
             self.yes.enabled = self.no.enabled = False
             self.note.set('Setup complete.' if self.process.returncode == 0 else
                           'Setup did not finish. Your choices are saved for retry.')
@@ -126,6 +138,8 @@ class LicenceTerminal(wm.Window):
     def cleanup(self):
         from workflows_offer import stop
         if self.process is not None:
+            if not self.finished:
+                self.log_event('Setup terminal closed before installer completion')
             stop(self.process)
         if self.tick in self.desk.tick_hooks: self.desk.tick_hooks.remove(self.tick)
         if self.master is not None:

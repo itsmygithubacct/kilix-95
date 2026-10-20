@@ -80,4 +80,16 @@ with H.desktop_dir(), patch.object(backend, 'catalog', return_value=ASSETS):
     assert not window.review_button.enabled
     window.close()
 
+with H.desktop_dir(), patch.object(backend, 'pages', side_effect=RuntimeError('catalog unavailable')):
+    desk = H.make_desk()
+    window = open_window(desk)
+    deadline = time.monotonic() + 3
+    while window.future is not None and time.monotonic() < deadline:
+        window.refresh(0); time.sleep(.01)
+    assert 'catalog unavailable' in window.error
+    assert Path(window.log_path).is_file()
+    latest = backend.read_json(backend.state_root() / 'model-wizard-last-result.json')
+    assert latest['phase'] == 'load model setup'
+    window.close()
+
 print('model wizard flow: OK')
