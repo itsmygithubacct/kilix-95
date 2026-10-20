@@ -1678,12 +1678,36 @@ class Shell:
     # ── dialogs ─────────────────────────────────────────────────────────────
     def run_dialog(self):
         def do(cmd):
-            if cmd:
+            if not cmd or not cmd.strip():
+                return
+            first = os.path.expanduser(split_cmd(cmd)[0])
+            if self._resolve_program(first):
                 self._spawn_kitty_launch(["--type=tab"], cmd,
-                                         split_cmd(cmd)[0] if cmd else "run")
+                                         split_cmd(cmd)[0])
+                return
+            self.ask_kilix_dialog(cmd.strip())
         wm.inputbox(self.desk, "Run",
                     "Type the name of a program to open it in a kilix tab:",
                     "", cb=do, icon="run", width=320)
+
+    def ask_kilix_dialog(self, text):
+        """Confirm, then hand `text` to `kilix ask` in a tab. This dialog
+        never acts on the request: the plan and the y/N prompt live in the
+        terminal."""
+        def chosen(label):
+            if label == "OK":
+                self.ask_kilix(text)
+        wm.msgbox(self.desk, "Run", f"Ask Kilix: {text}?", icon="question",
+                  buttons=("OK", "Cancel"), cb=chosen)
+
+    def ask_kilix(self, text):
+        # _tab takes an argv list, so the text stays one literal argument;
+        # `--` keeps text that starts with a dash from reading as an option.
+        # The tab closes when its command exits, so --hold keeps the result.
+        return self._tab(["kilix", "ask", "--hold", "--", text], "Ask Kilix")
+
+    def ask_voice(self):
+        return self._tab(["kilix", "ask", "--voice", "--hold"], "Ask Kilix")
 
     def change_password_dialog(self):
         """Modal change-password dialog (masked fields), backed by the
