@@ -91,16 +91,15 @@ def pdf_viewer_chooser_uses_the_shared_window_plan():
 def pdf_file_association_uses_the_viewer():
     d = H.make_desk()
     seen = {}
-    d.shell.open_catalog_application = lambda content_id, **kwargs: seen.update(
-        content_id=content_id, kwargs=kwargs) or True
+    d.shell._resolve_program = lambda name: "/usr/bin/okular" if name == "okular" else None
+    d.shell.open_in_xpane = lambda argv, title, **kwargs: seen.update(
+        argv=argv, title=title, kwargs=kwargs) or True
     with tempfile.TemporaryDirectory() as directory:
         document = Path(directory) / "manual.PDF"
         document.write_bytes(b"%PDF-1.4\n")
         d.shell.open_path(str(document))
-    assert seen == {
-        "content_id": "kilix-pdf",
-        "kwargs": {"action": "open", "arguments": (str(document),)},
-    }
+    assert seen["argv"] == ["/usr/bin/okular", str(document)], seen
+    assert seen["title"] == "Okular"
 
 
 def firefox_defaults_to_filled_run_tab():

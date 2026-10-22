@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 import sys
-import tempfile
 import textwrap
 import time
 
@@ -24,6 +23,14 @@ class ModelWizard(wm.Window):
         self.job = None
         self.error = ''
         self.batch = False
+        self.log_path = ''
+        try:
+            previous = backend.read_json(backend.state_root() / 'model-wizard-last-result.json')
+            if previous.get('ok') is False:
+                self.error = previous.get('error', '')
+                self.log_path = previous.get('error_log', '')
+        except (OSError, ValueError):
+            pass
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.future = self.pool.submit(backend.pages, ensure_sizer=True)
         self.add(W.Label(18, 20, 'Checking available models and sizing recommendations…'))
@@ -112,8 +119,8 @@ class ModelWizard(wm.Window):
         try:
             backend.apply(self.page['id'], selected, 'yes')
             self.error = ''
-        except (OSError, ValueError) as error:
-            self.error = str(error)
+        except Exception as error:
+            self.report_failure(error, 'save model choice')
             self.status.set(self.error[:88])
         self.update_controls()
 
@@ -129,7 +136,10 @@ class ModelWizard(wm.Window):
                   'affected models. Declining a licence skips those models.', 55, limit=5)
         self.text('The agreement terminal opens as a box inside this desktop. '
                   'Closing it leaves unfinished setup available for retry.', 155, limit=3)
-        self.status = self.add(W.Label(18, 280, self.error[:88]))
+        self.text(self.error, 215, limit=3)
+        if self.log_path:
+            self.text('Diagnostic log: ' + self.log_path, 272, limit=3)
+        self.status = self.add(W.Label(18, 328, ''))
         self.review_button = self.add(W.Button(18, 350, 235, 28, 'Review licences and install', cb=self.start_batch))
         self.review_button.enabled = bool(plans) and self.job is None
         self.finish_button = self.add(W.Button(280, 350, 130, 28, 'Finish' if not plans else 'Later', cb=self.close))
@@ -138,19 +148,24 @@ class ModelWizard(wm.Window):
 
     def start_batch(self):
         if self.job or not backend.pending(): return
-        directory = tempfile.TemporaryDirectory(prefix='kilix-model-wizard-')
-        result = str(Path(directory.name) / 'result.json')
-        command = [sys.executable, backend.__file__, 'finish', '--result', result]
         try:
+            directory = backend.new_run_directory()
+            result = str(directory / 'result.json')
+            self.log_path = str(directory / 'transcript.log')
+            command = [sys.executable, backend.__file__, 'finish', '--result', result]
             from apps.licenseterminal import open_window
-            open_window(self.desk, command)
+            open_window(self.desk, command, log_path=self.log_path)
         except Exception as error:
-            directory.cleanup()
-            self.error = str(error)
+            self.report_failure(error, 'start installer', locals().get('directory'))
         else:
             self.job = (directory, result, time.monotonic())
             self.error = 'Answer the grouped licence questions in the desktop terminal.'
         self.show_batch()
+
+    def report_failure(self, error, phase, directory=None):
+        outcome = backend.record_failure(error, phase=phase, directory=directory)
+        self.error = outcome['error']
+        self.log_path = outcome.get('error_log', self.log_path)
 
     def decline(self):
         if not self.decline_button.enabled: return
@@ -158,8 +173,8 @@ class ModelWizard(wm.Window):
             backend.apply(self.page['id'], [], 'no')
             self.error = ''
             self.sync_controllers()
-        except (OSError, ValueError) as error:
-            self.error = str(error)
+        except Exception as error:
+            self.report_failure(error, 'decline model choice')
             self.status.set(self.error[:88])
         self.update_controls()
 
@@ -202,8 +217,11 @@ class ModelWizard(wm.Window):
                 self.selected = {self.page['default']} if self.page['default'] else set()
                 self.show_page()
             except Exception as error:
+                self.report_failure(error, 'load model setup')
                 for widget in list(self.widgets): self.remove(widget)
-                self.text('Model setup could not be loaded: ' + str(error), 20, limit=8)
+                self.text('Model setup could not be loaded: ' + self.error, 20, limit=8)
+                if self.log_path:
+                    self.text('Diagnostic log: ' + self.log_path, 190, limit=5)
                 self.add(W.Button(18, 365, 110, 26, 'Close', cb=self.close))
                 self.invalidate()
             return
@@ -214,21 +232,24 @@ class ModelWizard(wm.Window):
                 try:
                     outcome = backend.read_json(result)
                     self.error = '' if outcome.get('ok') is True else outcome.get('error', 'Setup did not finish.')
+                    self.log_path = outcome.get('error_log') or self.log_path
                 except (OSError, ValueError) as error:
-                    self.error = str(error)
+                    self.report_failure(error, 'read installer result', directory)
                 self.job = None
-                directory.cleanup()
                 self.sync_controllers()
+                self.desk.shell._application_scan_after = 0
                 self.status.set(self.error[:88])
             elif worker_active(result) is False:
                 self.job = None
-                directory.cleanup()
-                self.error = 'Setup terminal closed before finishing. Review licences to retry.'
+                self.report_failure(RuntimeError(
+                    'Setup terminal closed before finishing. Review licences to retry.'),
+                    'installer exited without a result', directory)
                 self.status.set(self.error)
             elif time.monotonic() - started > 30 and not Path(result).with_name('worker.json').exists():
                 self.job = None
-                directory.cleanup()
-                self.error = 'Setup did not start. Review licences to retry.'
+                self.report_failure(RuntimeError(
+                    'Setup did not start. Review licences to retry.'),
+                    'installer did not start', directory)
                 self.status.set(self.error)
         if self.batch:
             if (repr(backend.pending()), self.error, self.job is not None) != self._batch_state:

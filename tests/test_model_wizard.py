@@ -61,8 +61,13 @@ with H.desktop_dir(), patch.object(backend, 'catalog', return_value=ASSETS):
     command = terminal.call_args.args[1]
     assert 'finish' in command and '--result' in command
     result = window.job[1]
-    backend.atomic_json(result, {'ok': False, 'error': 'Download failed'})
+    run_directory = Path(result).parent
+    error_log = str(run_directory / 'error.log')
+    backend.atomic_json(result, {'ok': False, 'error': 'Download failed', 'error_log': error_log})
     window.refresh(0)
+    assert run_directory.is_dir() and Path(result).is_file()
+    assert terminal.call_args.kwargs['log_path'] == str(run_directory / 'transcript.log')
+    assert window.log_path == error_log
     assert window.review_button.enabled and backend.pending()
     window.close()
     window = open_window(desk)
@@ -73,6 +78,18 @@ with H.desktop_dir(), patch.object(backend, 'catalog', return_value=ASSETS):
     backend.record('vision', 'yes', ['yolox_nano'])
     window.refresh(0)
     assert not window.review_button.enabled
+    window.close()
+
+with H.desktop_dir(), patch.object(backend, 'pages', side_effect=RuntimeError('catalog unavailable')):
+    desk = H.make_desk()
+    window = open_window(desk)
+    deadline = time.monotonic() + 3
+    while window.future is not None and time.monotonic() < deadline:
+        window.refresh(0); time.sleep(.01)
+    assert 'catalog unavailable' in window.error
+    assert Path(window.log_path).is_file()
+    latest = backend.read_json(backend.state_root() / 'model-wizard-last-result.json')
+    assert latest['phase'] == 'load model setup'
     window.close()
 
 print('model wizard flow: OK')

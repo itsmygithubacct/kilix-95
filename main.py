@@ -260,6 +260,9 @@ class Desk:
         self.password_nag = False      # default-password tray reminder (armed in run)
         self.fd_hooks = {}            # fd -> callback (XPane video feeds etc.)
         self.tick_hooks = []          # callables(now), each loop pass
+        if term is not None:
+            self.tick_hooks.append(self.shell.poll_applications)
+            self.shell.poll_applications()
         self.mouse_owner = None
         self._owner_btn = 0           # button that captured mouse_owner/drag
         self._buttons = 0

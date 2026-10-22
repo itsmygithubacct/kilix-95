@@ -2,6 +2,8 @@
 import os
 import sys
 import time
+from pathlib import Path
+from unittest.mock import patch
 import harness as H
 from apps.licenseterminal import open_window
 
@@ -15,10 +17,11 @@ def until(predicate, window, seconds=4):
     assert predicate(), window.output
 
 
-with H.desktop_dir():
+with H.desktop_dir() as temporary:
     desk = H.make_desk()
     script = "import sys; print('TTY', sys.stdin.isatty(), sys.stdout.isatty(), flush=True); a=input('Accept Apache 2.0 for model1, model2? [y/N] '); print('ANSWER='+a, flush=True)"
-    window = open_window(desk, [sys.executable, '-c', script])
+    log_path = Path(temporary) / 'transcript.log'
+    window = open_window(desk, [sys.executable, '-c', script], log_path=log_path)
     until(lambda: window.yes.enabled, window)
     assert 'TTY True True' in window.output
     assert window in desk.wm.windows
@@ -30,6 +33,8 @@ with H.desktop_dir():
     assert 'ANSWER=y' in window.output and window.process.returncode == 0
     window.close()
     assert window.master is None and window.tick not in desk.tick_hooks
+    assert 'ANSWER=y' in log_path.read_text()
+    assert log_path.stat().st_mode & 0o777 == 0o600
 
     window = open_window(desk, [sys.executable, '-c',
         "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print('ready',flush=True); time.sleep(60)"])
@@ -37,5 +42,14 @@ with H.desktop_dir():
     window.close()
     assert window.process.poll() is not None
     assert window.master is None
+
+    window = open_window(desk, [sys.executable, '-c', "print('worker survived')"],
+                         log_path=Path(temporary) / 'unwritable.log')
+    with patch.object(window.log, 'write', side_effect=OSError('disk full')):
+        until(lambda: window.finished, window)
+    assert 'worker survived' in window.output
+    assert 'Could not save diagnostic transcript: disk full' in window.output
+    assert window.log is None
+    window.close()
 
 print('embedded licence terminal: OK')

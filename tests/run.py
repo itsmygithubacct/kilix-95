@@ -121,6 +121,7 @@ def main():
             "XDG_STATE_HOME": os.path.join(sandbox, "xdg", "state"),
             "XDG_CACHE_HOME": os.path.join(sandbox, "xdg", "cache"),
             "XDG_DATA_HOME": os.path.join(sandbox, "xdg", "data"),
+            "XDG_DATA_DIRS": os.path.join(sandbox, "xdg", "system"),
             "KILIX_STATE_LIBRARY": state_library,
             "PYTHONDONTWRITEBYTECODE": "1",
         })
