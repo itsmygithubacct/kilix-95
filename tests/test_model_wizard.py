@@ -102,4 +102,14 @@ with H.desktop_dir(), patch('apps.modelwizard.Discovery', side_effect=OSError('c
     assert latest['phase'] == 'load model setup'
     window.close()
 
+with H.desktop_dir(), patch('apps.modelwizard.Discovery', side_effect=OSError('worker could not start')):
+    desk = H.make_desk()
+    window = open_window(desk)
+    # Closing before the first UI tick must still retain the startup failure;
+    # its completed Future has no owned process and no close() method.
+    window.close()
+    assert window not in desk.wm.windows
+    assert window.future is None and window.refresh not in desk.tick_hooks
+    assert 'worker could not start' in Path(window.log_path).read_text()
+
 print('model wizard flow: OK')

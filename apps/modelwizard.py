@@ -278,7 +278,18 @@ class ModelWizard(wm.Window):
         self._closed = True
         if self.future is not None:
             future, self.future = self.future, None
-            future.close()
+            close = getattr(future, 'close', None)
+            if close is not None:
+                close()
+            elif future.done():
+                # A startup failure is held in a completed Future with no
+                # worker to stop. Retain it even if closed before a UI tick.
+                try:
+                    future.result()
+                except Exception as error:
+                    self.report_failure(error, 'load model setup')
+            else:
+                future.cancel()
 
 
 def open_window(desk):
