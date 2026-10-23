@@ -171,16 +171,29 @@ def run_pty(args, launcher=None, timeout=LIST_TIMEOUT):
     try:
         process = subprocess.Popen([launcher, "pty", *args], stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   text=True, start_new_session=True)
+                                   start_new_session=True)
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except BaseException:
-            # This group belongs to this call, including the launcher's broker client.
+            # Only signal while the leader is still ours and unreaped. A reaped
+            # numeric PID/group ID may already have been reused.
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except OSError:
+                    pass
             try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.communicate()
+                process.communicate(timeout=1)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                # An inherited pipe can outlive the leader. Do not let cleanup
+                # turn the original timeout into an unbounded wait.
+                for stream in (process.stdout, process.stderr):
+                    if stream is not None:
+                        stream.close()
+                try:
+                    process.wait(timeout=1)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
             raise
         done = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
     except subprocess.TimeoutExpired as error:
@@ -188,9 +201,13 @@ def run_pty(args, launcher=None, timeout=LIST_TIMEOUT):
             from error
     except OSError as error:
         raise PtyError(f"Could not start kilix pty: {error}") from error
-    stdout = done.stdout or ""
-    stderr = clean_text((done.stderr or "").strip().splitlines()[-1]
-                        if (done.stderr or "").strip() else "", limit=300)
+    try:
+        stdout = (done.stdout or b"").decode("utf-8")
+        stderr = (done.stderr or b"").decode("utf-8")
+    except UnicodeError as error:
+        raise PtyError("kilix pty returned invalid UTF-8.") from error
+    stderr = clean_text(stderr.strip().splitlines()[-1]
+                        if stderr.strip() else "", limit=300)
     if not stdout.strip():
         return done.returncode, None, stderr
     if len(stdout) > JSON_LIMIT:
