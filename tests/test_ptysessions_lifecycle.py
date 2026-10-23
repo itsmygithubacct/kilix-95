@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory() as directory:
 # A reaped leader with a pipe retained elsewhere must never receive a signal,
 # and cleanup must use a deadline then close the local pipe handles.
 process = mock.Mock()
-process.poll.return_value = 0
+process.returncode = 0
 process.communicate.side_effect = subprocess.TimeoutExpired("fixture", 0.1)
 with mock.patch.object(P.subprocess, "Popen", return_value=process), mock.patch.object(P.os, "killpg") as signal_spy:
     try:
@@ -71,3 +71,33 @@ with mock.patch.object(P.subprocess, "Popen", return_value=process), mock.patch.
     process.stderr.close.assert_called_once()
     process.wait.assert_called_once_with(timeout=1)
 print("reaped leader and bounded cleanup controls passed")
+
+# An exited but unreaped leader still owns its group. Its helper inherits the
+# pipes and must be stopped before cleanup reaps the leader.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    marker = root / "helper"
+    launcher = root / "early-exit"
+    launcher.write_text("#!/usr/bin/env python3\nimport subprocess\n"
+                        "child = subprocess.Popen(['sleep', '30'])\n"
+                        f"open({str(marker)!r}, 'w').write(str(child.pid))\n")
+    launcher.chmod(0o700)
+    started = time.monotonic()
+    try:
+        P.run_pty(["list"], str(launcher), timeout=0.4)
+        raise AssertionError("expected inherited-pipe timeout")
+    except P.PtyError as error:
+        assert "did not answer" in str(error)
+    assert time.monotonic() - started < 4
+    pid = int(marker.read_text())
+    end = time.monotonic() + 2
+    while True:
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except (FileNotFoundError, ProcessLookupError):
+            break
+        if state == "Z":
+            break
+        assert time.monotonic() < end, "early-exit leader's helper survived timeout"
+        time.sleep(0.02)
+print("early-exit leader helper cleanup passed")

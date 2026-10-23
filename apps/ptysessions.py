@@ -177,7 +177,16 @@ def run_pty(args, launcher=None, timeout=LIST_TIMEOUT):
         except BaseException:
             # Only signal while the leader is still ours and unreaped. A reaped
             # numeric PID/group ID may already have been reused.
-            if process.poll() is None:
+            owned = process.returncode is None
+            if owned:
+                try:
+                    # WNOWAIT preserves an exited leader's PID until after the
+                    # group signal, so helpers holding output pipes are covered.
+                    os.waitid(os.P_PID, process.pid,
+                              os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                except OSError:
+                    owned = False
+            if owned:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except OSError:
