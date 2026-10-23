@@ -1,5 +1,5 @@
 """One startup window for the shared Kilix model wizard."""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
 import os
 from pathlib import Path
 import sys
@@ -9,6 +9,7 @@ import time
 import widgets as W
 import wm
 import model_wizard as backend
+from model_discovery import Discovery
 
 
 class ModelWizard(wm.Window):
@@ -31,8 +32,13 @@ class ModelWizard(wm.Window):
                 self.log_path = previous.get('error_log', '')
         except (OSError, ValueError):
             pass
-        self.pool = ThreadPoolExecutor(max_workers=1)
-        self.future = self.pool.submit(backend.pages, ensure_sizer=True)
+        self._closed = False
+        try:
+            self.future = Discovery()
+        except Exception as error:
+            # Present and log startup errors through the ordinary failure path.
+            self.future = Future()
+            self.future.set_exception(error)
         self.add(W.Label(18, 20, 'Checking available models and sizing recommendations…'))
         self.add(W.Button(510, 365, 110, 26, 'Later', cb=self.close))
         self.desk.tick_hooks.append(self.refresh)
@@ -205,6 +211,8 @@ class ModelWizard(wm.Window):
         self.show_page()
 
     def refresh(self, _now):
+        if self._closed:
+            return
         if self.future is not None:
             if not self.future.done(): return
             future, self.future = self.future, None
@@ -217,7 +225,8 @@ class ModelWizard(wm.Window):
                 self.selected = {self.page['default']} if self.page['default'] else set()
                 self.show_page()
             except Exception as error:
-                self.report_failure(error, 'load model setup')
+                self.report_failure(error, 'load model setup',
+                                    getattr(future, 'directory', None))
                 for widget in list(self.widgets): self.remove(widget)
                 self.text('Model setup could not be loaded: ' + self.error, 20, limit=8)
                 if self.log_path:
@@ -266,7 +275,10 @@ class ModelWizard(wm.Window):
     def cleanup(self):
         if self.refresh in self.desk.tick_hooks:
             self.desk.tick_hooks.remove(self.refresh)
-        self.pool.shutdown(wait=False, cancel_futures=True)
+        self._closed = True
+        if self.future is not None:
+            future, self.future = self.future, None
+            future.close()
 
 
 def open_window(desk):

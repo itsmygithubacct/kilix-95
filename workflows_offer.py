@@ -37,6 +37,10 @@ def read_status(output, code):
 
 def stop(process):
     """Only terminate the process group created for this owned probe."""
+    from owned_job import OwnedJob
+    if isinstance(process, OwnedJob):
+        process.stop()
+        return
     if process.poll() is None:
         try:
             os.killpg(process.pid, signal.SIGTERM)

@@ -5,12 +5,12 @@ import os
 import pty
 import re
 import struct
-import subprocess
 import termios
 from datetime import datetime, timezone
 
 import widgets as W
 import wm
+from owned_job import OwnedJob
 
 
 class Transcript(W.TextArea):
@@ -38,9 +38,8 @@ class LicenceTerminal(wm.Window):
                 fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 self.log = os.fdopen(fd, 'wb')
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 26, 95, 0, 0))
-            self.process = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=slave,
-                                            start_new_session=True,
-                                            env=dict(os.environ, TERM='dumb', NO_COLOR='1'))
+            self.process = OwnedJob(command, stdin=slave, stdout=slave, stderr=slave,
+                                    env=dict(os.environ, TERM='dumb', NO_COLOR='1'))
             self.log_event(f'Installer started; pid={self.process.pid}')
         except BaseException:
             os.close(self.master)
@@ -137,18 +136,25 @@ class LicenceTerminal(wm.Window):
 
     def cleanup(self):
         from workflows_offer import stop
-        if self.process is not None:
-            if not self.finished:
-                self.log_event('Setup terminal closed before installer completion')
-            stop(self.process)
-        if self.tick in self.desk.tick_hooks: self.desk.tick_hooks.remove(self.tick)
-        if self.master is not None:
-            self.desk.remove_fd(self.master)
-            os.close(self.master)
-            self.master = None
-        if self.log is not None:
-            self.log.close()
-            self.log = None
+        try:
+            if self.process is not None:
+                if not self.finished:
+                    self.log_event('Setup terminal closed before installer completion')
+                stop(self.process)
+        finally:
+            try:
+                if self.tick in self.desk.tick_hooks:
+                    self.desk.tick_hooks.remove(self.tick)
+                if self.master is not None:
+                    descriptor, self.master = self.master, None
+                    try:
+                        self.desk.remove_fd(descriptor)
+                    finally:
+                        os.close(descriptor)
+            finally:
+                log, self.log = getattr(self, 'log', None), None
+                if log is not None:
+                    log.close()
 
 
 def open_window(desk, command, *, log_path=None):

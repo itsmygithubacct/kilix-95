@@ -4,6 +4,9 @@ import sys
 import time
 from pathlib import Path
 from unittest.mock import patch
+
+from types import SimpleNamespace
+from unittest import mock
 import harness as H
 from apps.licenseterminal import open_window
 
@@ -53,3 +56,42 @@ with H.desktop_dir() as temporary:
     window.close()
 
 print('embedded licence terminal: OK')
+
+for failure in (None, KeyboardInterrupt(), SystemExit(0), RuntimeError('loop failed')):
+    with H.desktop_dir():
+        desk = H.make_desk()
+        window = open_window(desk, [sys.executable, '-c',
+            "import time; print('ready',flush=True); time.sleep(60)"])
+        until(lambda: 'ready' in window.output, window)
+        master = window.master
+        restored = []
+        cleaned = []
+        desk.term = SimpleNamespace(restore=lambda: restored.append(True))
+        desk.cleanup_shm = lambda: cleaned.append(True)
+        # A busy window refuses ordinary close; forced shutdown must call its
+        # ownership callback directly and continue after callback failure.
+        callback = mock.Mock(side_effect=RuntimeError('cleanup failed'))
+        busy = SimpleNamespace(on_close=callback, close=mock.Mock(side_effect=AssertionError('busy')))
+        desk.wm.windows.insert(0, busy)
+        def run():
+            if failure is not None:
+                raise failure
+        desk._run = run
+        try:
+            desk.run()
+        except (SystemExit, RuntimeError) as error:
+            assert error is failure
+        callback.assert_called_once()
+        busy.close.assert_not_called()
+        assert window.process.poll() is not None
+        assert window.master is None and window.tick not in desk.tick_hooks
+        assert master not in desk.fd_hooks
+        try:
+            os.fstat(master)
+        except OSError:
+            pass
+        else:
+            raise AssertionError('PTY survived desktop teardown')
+        assert desk.wm.windows == [] and restored and cleaned
+
+print('embedded licence terminal and desktop teardown: OK')

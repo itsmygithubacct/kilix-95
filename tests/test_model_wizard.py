@@ -1,5 +1,6 @@
 """One window, explicit Continue, durable skip, alternate checkboxes and retry."""
 from pathlib import Path
+from concurrent.futures import Future
 import os
 import time
 from unittest.mock import patch
@@ -21,7 +22,16 @@ def loaded(window):
     assert window.pages
 
 
-with H.desktop_dir(), patch.object(backend, 'catalog', return_value=ASSETS):
+def discovery_fixture():
+    # UI flow uses deterministic discovery; worker ownership is tested separately.
+    future = Future()
+    future.set_result(backend.pages(ensure_sizer=False, measure=False))
+    future.close = lambda: None
+    return future
+
+
+with H.desktop_dir(), patch.object(backend, 'catalog', return_value=ASSETS), \
+        patch('apps.modelwizard.Discovery', side_effect=discovery_fixture):
     desk = H.make_desk()
     window = open_window(desk)
     loaded(window)
@@ -80,7 +90,7 @@ with H.desktop_dir(), patch.object(backend, 'catalog', return_value=ASSETS):
     assert not window.review_button.enabled
     window.close()
 
-with H.desktop_dir(), patch.object(backend, 'pages', side_effect=RuntimeError('catalog unavailable')):
+with H.desktop_dir(), patch('apps.modelwizard.Discovery', side_effect=OSError('catalog unavailable')):
     desk = H.make_desk()
     window = open_window(desk)
     deadline = time.monotonic() + 3
