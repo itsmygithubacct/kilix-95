@@ -340,6 +340,7 @@ def test_frame_reaper_preserves_live_locked_directory():
 
 
 def test_frame_cleanup_survives_terminal_restore_failure():
+    import fcntl
     import os
 
     class BrokenRestore(FakeTerm):
@@ -349,21 +350,29 @@ def test_frame_cleanup_survives_terminal_restore_failure():
     term = BrokenRestore(cols=4, rows=3, cell_w=8, cell_h=8)
     d = desk_main.Desk(term=term)
     d.blit(force_full=True)
-    frame_dir, frame_fd = d._frame_dir, d._frame_dir_fd
+    frame_dir = d._frame_dir
+    # Keep an independent handle to the inode: another thread may reuse the
+    # owner's descriptor number immediately after cleanup closes it.
+    probe = os.open(frame_dir, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        d._restore_and_cleanup(term)
-    except BrokenPipeError:
-        pass
-    else:
-        assert False, "terminal restore failure did not propagate"
-    assert not os.path.exists(frame_dir), "restore failure skipped frame cleanup"
-    assert d._frame_dir is None and d._frame_dir_fd is None
-    try:
-        os.fstat(frame_fd)
-    except OSError:
-        pass
-    else:
-        assert False, "frame-directory lifetime lock was not released"
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pass
+        else:
+            assert False, "frame-directory lifetime lock was not held"
+        try:
+            d._restore_and_cleanup(term)
+        except BrokenPipeError:
+            pass
+        else:
+            assert False, "terminal restore failure did not propagate"
+        assert not os.path.exists(frame_dir), "restore failure skipped frame cleanup"
+        assert d._frame_dir is None and d._frame_dir_fd is None
+        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        os.close(probe)
+        d.cleanup_shm()
 
 
 def test_early_startup_exit_still_restores_terminal():
