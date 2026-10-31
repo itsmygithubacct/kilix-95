@@ -6,6 +6,8 @@ import time
 from unittest.mock import patch
 import harness as H
 import model_wizard as backend
+import theme as T
+import widgets as W
 from apps.modelwizard import open_window
 
 ASSETS = [dict(id=name, label=name, provider='test', download_bytes=10000000,
@@ -111,5 +113,63 @@ with H.desktop_dir(), patch('apps.modelwizard.Discovery', side_effect=OSError('w
     assert window not in desk.wm.windows
     assert window.future is None and window.refresh not in desk.tick_hooks
     assert 'worker could not start' in Path(window.log_path).read_text()
+
+# Real catalog notes must remain accessible before any saved choice or licence
+# action. Use the normal keyboard route from checkbox to its Details button.
+disclosed_ids = {'qwen3.5-4b', 'granite-vision-4.1-4b'}
+disclosed = [row for row in backend.catalog() if row['id'] in disclosed_ids]
+assert {row['id'] for row in disclosed} == disclosed_ids
+with H.desktop_dir(), patch.object(backend, 'catalog', return_value=disclosed), \
+        patch('apps.modelwizard.Discovery', side_effect=discovery_fixture), \
+        patch.object(backend, 'apply') as apply:
+    desk = H.make_desk()
+    window = open_window(desk)
+    loaded(window)
+    for index, page in enumerate(window.pages):
+        window.index = index
+        window.selected = {page['default']} if page['default'] else set()
+        window.show_page()
+        row = page['models'][0]
+        checkbox = window.checks[0]
+        assert row['id'] in checkbox.text and '**' not in checkbox.text
+        assert checkbox.x + checkbox.w < 545
+        expected = 'name-inferred' if row['id'] == 'qwen3.5-4b' else 'trust_remote_code=True'
+        H.key(desk, 'Tab')
+        assert window.focus.text == 'Details...'
+        H.key(desk, 'Enter')
+        dialog = desk.wm.windows[-1]
+        assert dialog.modal and dialog.title == 'Model details'
+        viewer = dialog.focus
+        assert isinstance(viewer, W.TextArea) and viewer.read_only
+        full = ' '.join(viewer.text().split())
+        assert expected in full and row['id'] in full and '**' not in full
+        assert 'do not record your licence agreement' in full
+        assert all(T.text_w(viewer.font, line) <= viewer.text_viewport()[2]
+                   for line in viewer.lines)
+        original = viewer.text()
+        H.key(desk, 'x', text='x')
+        assert viewer.text() == original
+        H.key(desk, 'Escape')
+        assert dialog not in desk.wm.windows
+        assert backend.answers() == {} and not backend.pending()
+        expected_download = backend.size_text(row['download_bytes'])
+        assert expected_download + ' download' in window.status.text
+    # A long backend advisory has no line-count cap, and End reaches its final
+    # alternative using the same read-only keyboard navigation as manuals.
+    note = ('No confirmed fit. ' * 35 +
+            'Install and start the local Ollama backend, then retry kilix wizard finish. '
+            'You can also revisit the System-local LLM page and decline it.')
+    window.page['recommendation'] = note
+    window.show_page()
+    H.key(desk, 'Tab', shift=True)
+    assert window.focus is window.recommendation
+    H.key(desk, 'End')
+    viewer = window.recommendation
+    assert ' '.join(viewer.text().split()) == ' '.join(note.split())
+    visible = ' '.join(viewer.lines[viewer.sb.pos:viewer.sb.pos + viewer._rows()])
+    assert 'System-local LLM page and decline it.' in visible
+    assert viewer.sb.pos > 0
+    apply.assert_not_called()
+    window.close()
 
 print('model wizard flow: OK')

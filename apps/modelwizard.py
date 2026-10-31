@@ -7,9 +7,11 @@ import textwrap
 import time
 
 import widgets as W
+import theme as T
 import wm
 import model_wizard as backend
 from model_discovery import Discovery
+from apps.manual import _ReadOnlyTextArea
 
 
 class ModelWizard(wm.Window):
@@ -55,22 +57,46 @@ class ModelWizard(wm.Window):
             y += 17
         return y
 
+    def show_details(self, row):
+        dialog = wm.Window(self.desk, 'Model details', 650, 440,
+                           icon='speak', resizable=False, modal=True)
+        description = row['label'].replace('**', '')
+        text = (f'Model: {row["id"]}\n\n{description}\n\n'
+                f'Download: {backend.size_text(row["download_bytes"])}\n'
+                'Catalog model payload size; cached data may reduce transfer.\n'
+                f'Installed disk: {backend.size_text(row["installed_bytes"])}\n'
+                f'Temporary disk: {backend.size_text(row["temporary_bytes"])}\n'
+                f'{backend.memory_text(row)}\n\n'
+                'Catalog notes do not record your licence agreement. '
+                'You will review licences separately before installation.')
+        viewer = dialog.add(_ReadOnlyTextArea(18, 18, 602, 328))
+        viewer.set_text('\n'.join(wm._wrap_text(text, viewer.font, viewer.text_viewport()[2])))
+        dialog.add(W.Button(490, 370, 125, 26, 'Close', cb=dialog.close))
+        self.desk.wm.add(dialog)
+        dialog.set_focus(viewer)
+        return dialog
+
     def show_page(self):
         for widget in list(self.widgets):
             self.remove(widget)
         page = self.page
         self.add(W.Label(18, 14, f'{page["title"]}  ({self.index + 1} of {len(self.pages)})'))
-        self.text(page['recommendation'], 40, limit=3)
+        self.recommendation = self.add(_ReadOnlyTextArea(18, 40, 602, 52))
+        self.recommendation.set_text('\n'.join(wm._wrap_text(
+            page['recommendation'], self.recommendation.font,
+            self.recommendation.text_viewport()[2])))
         self.add(W.Label(18, 99, 'Check the models to install. The recommended/default model starts checked.'))
         self.checks = []
         for position, row in enumerate(page['models'][self.offset:self.offset + self.ROWS]):
             y = 124 + position * 37
-            label = row['label']
+            label = row['id']
             if row['id'] == page['default']:
                 label += ' (default)'
-            checkbox = self.add(W.Checkbox(18, y, label[:87], row['id'] in self.selected,
+            checkbox = self.add(W.Checkbox(18, y, T.ellipsize(T.FONT, label, 490), row['id'] in self.selected,
                 cb=lambda checked, key=row['id']: self.toggle(key, checked)))
             self.checks.append(checkbox)
+            self.add(W.Button(545, y - 2, 75, 18, 'Details...',
+                              cb=lambda model=row: self.show_details(model)))
             detail = f'Download {backend.size_text(row["download_bytes"])}; disk {backend.size_text(row["installed_bytes"])}'
             memory = backend.memory_text(row)
             if memory:
