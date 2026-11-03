@@ -1,5 +1,11 @@
 # Kilix 95
 
+## 0.2.2.1 maintenance candidate
+
+Model Setup removes submitted administrator passwords from terminal output before displaying or saving the diagnostic transcript, including echoes split across reads.
+
+This source is a release candidate; installation-media and upgrade acceptance are pending.
+
 A Windows 95-style desktop rendered as **pixels** inside a Kilix pane, with an
 optional Windows XP-style flavor.
 
