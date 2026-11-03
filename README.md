@@ -20,12 +20,22 @@ kilix desktop
 
 Quit through Start -> Shut Down..., or press `Ctrl+Alt+Q`.
 
-## Release 0.2.2 — in development
+## Release 0.2.2 — Linux
 
-The reviewed source integration is selected for the coordinated Plebian-OS
-0.2.2 candidate. Image, upgrade, rollback and final installed acceptance remain
-pending; use the [OS upgrade policy](https://github.com/itsmygithubacct/plebian-os/blob/main/UPGRADING.md)
+Kilix-95 0.2.2 ships in the coordinated Plebian-OS Linux release published
+November 3, 2026. The `v0.2.2` tag identifies the released source; this branch
+can contain later development. Use the [release's OS upgrade policy](https://github.com/itsmygithubacct/plebian-os/blob/v0.2.2/UPGRADING.md)
 for supported release paths.
+
+The optional-software model wizard now attaches a controlling terminal when
+it invokes an administrator installer, so `sudo` can prompt for a password.
+Optional software, model weights, and licence receipts remain separate choices.
+
+Linux installation and lifecycle qualification covers QEMU/KVM BIOS and EFI
+virtual machines. Bare-metal USB installation and physical GPU operation were
+not qualified. Windows remains at `windows-v0.2.2-preview.4`; ARM64 is not a
+supported OS release target. See the [published release notes](https://github.com/itsmygithubacct/plebian-os/releases/tag/v0.2.2)
+for known issues and deferred feature qualification.
 
 The PTY session manager uses the matching host's structured session interface
 and cleans up its owned helper processes when the window closes. The desktop
