@@ -100,7 +100,8 @@ with tempfile.TemporaryDirectory(prefix="kilix95-tui-roots-") as temporary:
                 assert os.environ["KILIX_CONTENT_ROOT"] == "/stale/receipts"
 
                 commands = []
-                with patch.object(d.shell, "_kitten", return_value="/fixture/kitten"), \
+                with patch("shell.frontend_context.refresh", return_value=None), \
+                        patch.object(d.shell, "_kitten", return_value="/fixture/kitten"), \
                         patch.object(d.shell, "_resolve_program", side_effect=lambda value: value), \
                         patch.object(d.shell, "_popen", side_effect=lambda argv: commands.append(argv) or True), \
                         patch.dict(os.environ, {"KITTY_LISTEN_ON": "unix:/fixture/not-contacted"}):

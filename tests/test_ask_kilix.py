@@ -93,7 +93,9 @@ def dash_text_is_the_request_not_an_option():
     assert tabs == [(["kilix", "ask", "--hold", "--", text], "Ask Kilix")], tabs
 
 
-def tab_receives_argv_without_a_shell():
+# This argv-only fixture owns no live frontend; transport is already stubbed.
+@patch("shell.frontend_context.refresh", return_value=None)
+def tab_receives_argv_without_a_shell(verified_frontend):
     """End to end through _tab: the text is one argv element after `--`."""
     text = 'a "b" $(c); d'
     with tempfile.TemporaryDirectory() as tmp:

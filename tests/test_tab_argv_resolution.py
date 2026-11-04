@@ -22,7 +22,9 @@ def _rc_shell(d, spawned):
     return d.shell
 
 
-def test_bare_names_resolve_against_the_desktop_environment():
+# This argv-only fixture owns no live frontend; transport is already stubbed.
+@patch("shell.frontend_context.refresh", return_value=None)
+def test_bare_names_resolve_against_the_desktop_environment(verified_frontend):
     d = H.make_desk()
     spawned = []
     sh = _rc_shell(d, spawned)
@@ -36,7 +38,9 @@ def test_bare_names_resolve_against_the_desktop_environment():
     assert child == ["/resolved/kilix-rollout-resume", "status"]
 
 
-def test_local_bin_is_reached_when_path_misses_it():
+# This argv-only fixture owns no live frontend; transport is already stubbed.
+@patch("shell.frontend_context.refresh", return_value=None)
+def test_local_bin_is_reached_when_path_misses_it(verified_frontend):
     d = H.make_desk()
     spawned = []
     sh = _rc_shell(d, spawned)
@@ -74,7 +78,9 @@ def test_a_missing_tool_fails_with_words_not_a_dead_tab():
     assert "could not be found" in boxes[0][1]
 
 
-def test_paths_are_passed_through_when_executable():
+# This argv-only fixture owns no live frontend; transport is already stubbed.
+@patch("shell.frontend_context.refresh", return_value=None)
+def test_paths_are_passed_through_when_executable(verified_frontend):
     d = H.make_desk()
     spawned = []
     sh = _rc_shell(d, spawned)
@@ -84,6 +90,24 @@ def test_paths_are_passed_through_when_executable():
     assert child == ["/bin/sh", "-c", "true"]
 
 
+def test_unverified_frontend_cannot_spawn_a_tab():
+    from kilix_sdk.caller_context import CallerContextError
+    d = H.make_desk()
+    spawned = []
+    sh = _rc_shell(d, spawned)
+    with patch.dict(os.environ, {"KITTY_LISTEN_ON": "unix:/fixture/not-contacted"}), \
+            patch("shell.frontend_context.refresh", side_effect=CallerContextError("unverified fixture")) as refresh:
+        try:
+            sh._tab(["/bin/sh"], "Shell")
+        except CallerContextError:
+            pass
+        else:
+            raise AssertionError("unverified frontend was accepted")
+        refresh.assert_called_once_with()
+    assert not spawned
+
+
+test_unverified_frontend_cannot_spawn_a_tab()
 test_bare_names_resolve_against_the_desktop_environment()
 test_local_bin_is_reached_when_path_misses_it()
 test_a_missing_tool_fails_with_words_not_a_dead_tab()
