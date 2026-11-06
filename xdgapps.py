@@ -7,6 +7,7 @@ hands a discovered entry to Shell.launch. Everything is driven by
 $XDG_DATA_HOME / $XDG_DATA_DIRS (spec defaults when unset); nothing about the
 host machine is hardcoded.
 """
+import os
 import shlex
 from pathlib import Path
 import icons
@@ -66,13 +67,44 @@ def icon_for(entry):
     return _BUCKET_ICONS.get(bucket(entry), "app")
 
 
+# Browsers stay filled tabs. Everything else a person clicks on the desktop
+# opens in a window, except VirtualBox, whose guest has to be refit in a
+# kilix-run tab, and terminal entries, which have no tty on a private Xvfb.
+_BROWSER_BASENAMES = {
+    "firefox", "firefox-esr", "firefox-bin",
+    "chromium", "chromium-browser",
+    "google-chrome", "google-chrome-stable",
+    "brave-browser", "microsoft-edge", "microsoft-edge-stable",
+}
+
+
+def is_browser_program(argv0):
+    return os.path.basename(argv0 or "") in _BROWSER_BASENAMES
+
+
+def is_browser_entry(entry):
+    try:
+        argv = shlex.split(entry.get("exec") or "")
+    except ValueError:
+        return False
+    return bool(argv) and is_browser_program(argv[0])
+
+
 # ── launching ────────────────────────────────────────────────────────────────
 
-def launch(shell, entry, mode="tab"):
-    """Open a discovered app. mode "tab" (default) synthesizes a launcher spec
-    and runs it in a kilix tab; "window" streams it into a Redmond 95 desktop window
-    via XPane (the way the media player runs); "fullscreen" is the same, sized
-    to the whole screen."""
+def launch(shell, entry, mode=None):
+    """Open a discovered app.
+
+    A normal click opens a window on the desktop ("window"). Pass "tab" for
+    a kilix tab, or "fullscreen" for a desktop window the size of the desk.
+    Browsers, VirtualBox, and terminal entries default to a tab.
+    """
+    if mode is None:
+        if (entry.get("terminal") or vbox.is_virtualbox_entry(entry)
+                or is_browser_entry(entry)):
+            mode = "tab"
+        else:
+            mode = "window"
     name = entry.get("name") or "app"
     if vbox.is_virtualbox_entry(entry):
         argv = vbox.entry_argv(entry, fullscreen=(mode == "fullscreen"))

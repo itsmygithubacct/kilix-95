@@ -95,7 +95,13 @@ def main():
     assert seen["kw"].get("icon") == "browser", seen["kw"]
     assert "spec" not in seen, "window mode must not go through launch"
 
-    # "Open in tab" (== the default click) routes through Shell.launch
+    # A normal click opens a desktop window. "Open in tab" stays explicit.
+    seen.clear()
+    net.action()
+    assert seen["argv"] == ["/usr/bin/true"], seen.get("argv")
+    assert seen["title"] == "Sample Browser", seen.get("title")
+    assert "spec" not in seen, "the default click must not open a tab"
+
     seen.clear()
     ctx["Open in tab"].action()
     assert seen["spec"]["Name"] == "Sample Browser", seen.get("spec")

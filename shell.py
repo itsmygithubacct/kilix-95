@@ -44,10 +44,10 @@ KILIX_HOME = kilix_host.find_kilix_home()
 PLEB_RECOVERY_DOC = "/usr/local/share/doc/pleb/RECOVERY.md"
 
 OPEN_MODES = ["kilix tab", "kilix os-window", "kilix fullscreen",
-              "kilix run (X11 app)", "web browser"]
+              "desktop window", "web browser"]
 MODE_KEYS = {"kilix tab": "tab", "kilix os-window": "window",
              "kilix fullscreen": "fullscreen",
-             "kilix run (X11 app)": "run", "web browser": "browse"}
+             "desktop window": "run", "web browser": "browse"}
 ICON_CHOICES = ["exe", "terminal", "mux", "doc", "doc_text", "doc_image", "folder",
                 "computer", "browser", "notepad", "documentreader", "settings", "display",
                 "drive", "home", "run", "flame"]
@@ -625,7 +625,7 @@ class Shell:
         win.add(W.Button(cw - 44, y - 1, 32, 23, "…", cb=browse_dir))
         y += 28
         win.add(W.Label(12, y + 3, "Open in:"))
-        mode0 = spec.get("X-Kilix-Open", "tab")
+        mode0 = spec.get("X-Kilix-Open", "run")
         if spec.get("Type") == "Link":
             mode0 = "browse"
         rev = {v: k for k, v in MODE_KEYS.items()}
@@ -650,7 +650,7 @@ class Shell:
         win.add(_Preview())
         d_icon.cb = lambda *_: win.invalidate()
         y += 34
-        hint = "Command runs in a new kilix tab; pick another mode above."
+        hint = "Opens in a desktop window. Use a tab for a browser or a fullscreen game."
         win.add(W.Label(12, y, hint, font=T.SMALL, color=T.SHADOW))
 
         def save():
@@ -698,9 +698,9 @@ class Shell:
             return
         mode = spec.get("X-Kilix-Open")
         if not mode:
-            # Freedesktop launchers default Terminal=false. Imported/copied
-            # GUI launchers therefore belong in `kilix run`, while explicit
-            # terminal launchers remain ordinary command tabs.
+            # Freedesktop launchers default Terminal=false. Imported GUI
+            # launchers open as a window on this desk. Explicit terminal
+            # launchers remain ordinary command tabs.
             terminal = str(spec.get("Terminal", "")).strip().lower() == "true"
             mode = "tab" if terminal else "run"
         cwd = os.path.expanduser(spec.get("Path") or "~")
@@ -728,7 +728,12 @@ class Shell:
                               size=self.desk.size() if mode == "fullscreen"
                               else None, refit_windows=True)
         elif mode == "run":
-            self.open_x11_tab(argv, name, cwd=cwd)
+            # "desktop window" in the launcher dialog. Browsers stay filled
+            # tabs; other X clients draw inside a window on this desk.
+            if xdgapps.is_browser_program(argv[0]):
+                self.open_x11_tab(argv, name, cwd=cwd, fill=True)
+            else:
+                self.open_in_xpane(argv, name, cwd=cwd)
         elif mode == "window":
             self._spawn_kitty_launch(
                 ["--type=os-window"], sanitized_cmd, name, cwd)
@@ -828,6 +833,19 @@ class Shell:
                             *env_args, "--"]
                            + argv)
 
+    # Host controls. The argv matches pleb's devices map: each one is an X
+    # client, and the desktop bus has to travel with it so udisks, bluez, and
+    # the sound server stay reachable after the pane isolates its own bus.
+    _DEVICE_ARGV = {
+        "power": ("kilix", "power-controls", "--native"),
+        "bluetooth": ("blueman-manager",),
+        "storage": ("gnome-disks",),
+        "printers": ("system-config-printer",),
+        "audio": ("pavucontrol",),
+        "input-method": ("ibus-setup",),
+        "accessibility": ("orca", "--setup"),
+    }
+
     def open_device_settings(self, tool):
         labels = {
             "power": "Power", "bluetooth": "Bluetooth", "storage": "Disks",
@@ -837,14 +855,49 @@ class Shell:
         }
         if tool not in labels:
             raise ValueError("Unknown desktop device control")
-        pleb = self._resolve_program("pleb")
-        if not pleb:
+        if tool == "lock":
+            pleb = self._resolve_program("pleb")
+            if not pleb:
+                wm.msgbox(self.desk, labels[tool],
+                          "Desktop device controls require Pleb. Run pleb install.",
+                          icon="error")
+                return False
+            # Locking the session is not a window, and it must not open a tab.
+            return self._popen([pleb, "lock"])
+        spec = self._DEVICE_ARGV[tool]
+        program = self._resolve_program(spec[0])
+        if not program:
             wm.msgbox(self.desk, labels[tool],
-                      "Desktop device controls require Pleb. Run pleb install.",
-                      icon="error")
+                      f"{spec[0]} is not installed.", icon="error")
             return False
-        argv = [pleb, "lock"] if tool == "lock" else [pleb, "devices", tool]
-        return self._tab(argv, labels[tool])
+        bus = (os.environ.get("PLEB_DESKTOP_BUS_ADDRESS")
+               or os.environ.get("DBUS_SESSION_BUS_ADDRESS"))
+        if not bus:
+            wm.msgbox(self.desk, labels[tool],
+                      "A desktop session bus is required.", icon="error")
+            return False
+        env_bin = self._resolve_program("env") or "/usr/bin/env"
+        wrapped = [env_bin, f"DBUS_SESSION_BUS_ADDRESS={bus}"]
+        if os.environ.get("IBUS_ADDRESS"):
+            wrapped.append(f"IBUS_ADDRESS={os.environ['IBUS_ADDRESS']}")
+        sw, sh = self.desk.size()
+        return self.open_in_xpane(
+            wrapped + [program, *spec[1:]], labels[tool], icon="settings",
+            app_size=(min(1000, sw), min(720, max(160, sh - 28))))
+
+    def open_tool_window(self, argv, title, icon="exe", cwd=None):
+        """Run a terminal program as a window on the desktop, not a new tab."""
+        term = self._resolve_program("xterm")
+        if not term:
+            wm.msgbox(self.desk, title,
+                      "xterm is not installed, so this program cannot open "
+                      "in a desktop window.", icon="error")
+            return False
+        sw, sh = self.desk.size()
+        return self.open_in_xpane(
+            [term, "-T", title, "-geometry", "120x36", "-e", *list(argv)],
+            title, icon=icon, cwd=cwd,
+            app_size=(min(1000, sw), min(720, max(160, sh - 28))))
 
     def open_x11_tab(self, argv, title, cwd=None, fill=False, size=None,
                      refit_windows=False):

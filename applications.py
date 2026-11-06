@@ -84,8 +84,15 @@ def model_records(assets, decisions, *, local_models=None):
             rows.append(command_record("bonsai-image", "Bonsai Image Generation",
                                        "paint", [binary]))
     if groups.get("chat"):
-        if binary := executable("kilix-bonsai-chat", "KILIX_BONSAI_PREFIX"):
-            rows.append(command_record("llm-chat", "LLM Chat", "chat", [binary]))
+        # The desktop hosts the GUI inside a window. The curses chat remains
+        # the fallback until that frontend is installed.
+        gui = executable("kilix-bonsai-chat-gui", "KILIX_BONSAI_PREFIX")
+        tui = executable("kilix-bonsai-chat", "KILIX_BONSAI_PREFIX")
+        if gui:
+            rows.append(command_record("llm-chat", "LLM Chat", "chat", [gui],
+                                       gui=True))
+        elif tui:
+            rows.append(command_record("llm-chat", "LLM Chat", "chat", [tui]))
     if groups.get("dictation"):
         whisper = next(((a, p) for a, p in groups["dictation"]
                         if a.asset_id == "faster-whisper-small-en"), None)
@@ -172,7 +179,10 @@ def launch(shell, row):
             argv = ["/bin/sh", "-c",
                     '"$@"; status=$?; printf "\\nExit status: %s\\nPress Enter to close. " "$status"; '
                     'read -r reply; exit "$status"', "kilix-tool", *argv]
-        return shell._tab(argv, row["label"])
+        icon = row.get("icon") or "exe"
+        if row.get("gui"):
+            return shell.open_in_xpane(argv, row["label"], icon=icon)
+        return shell.open_tool_window(argv, row["label"], icon=icon)
 
     if row.get("picker"):
         import filedialog

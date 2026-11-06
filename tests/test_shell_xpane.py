@@ -236,8 +236,10 @@ def copied_terminal_launchers_strip_field_codes_before_shell_execution():
 def copied_launcher_expands_field_codes_without_argument_debris():
     d = H.make_desk()
     seen = {}
-    d.shell.open_x11_tab = lambda argv, title, cwd=None, **kw: seen.update(
+    d.shell.open_in_xpane = lambda argv, title, cwd=None, **kw: seen.update(
         argv=argv, title=title, cwd=cwd, kw=kw) or True
+    d.shell.open_x11_tab = lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("a copied GUI launcher opened a tab"))
     desktop_path = "/tmp/example.desktop"
 
     d.shell.launch({
@@ -248,6 +250,7 @@ def copied_launcher_expands_field_codes_without_argument_debris():
     assert seen["argv"] == [
         "demo", "%", "Demo Name", desktop_path, "--icon", "demo-icon",
     ], seen
+    assert seen["title"] == "Demo Name"
 
 
 def malformed_copied_launcher_is_rejected():

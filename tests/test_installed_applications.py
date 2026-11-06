@@ -25,6 +25,8 @@ def interfaces_require_models_and_respect_declines():
         assert {"bonsai-image", "llm-chat", "avatar", "whisper"} <= by_id.keys()
         assert by_id["whisper"]["argv"][-1] == "--audio"
         assert by_id["avatar"]["argv"][-2:] == ("--model", "sample:1b")
+        assert by_id["llm-chat"]["argv"] == ("/bin/kilix-bonsai-chat-gui",)
+        assert by_id["llm-chat"]["gui"] is True
         rows, _ = A.model_records(assets, {"image": {"answer": "no"},
                                            "system-local-llm": {"answer": "no"}},
                                  local_models={"sample:1b": {}})
@@ -54,7 +56,8 @@ def desktop_and_menu_launch_same_app_and_refresh_removes_it():
     desk.shell.refresh()
     item = next(i for i in desk.shell.grid.items if i["label"] == "Sample Chat")
     seen = []
-    desk.shell._tab = lambda argv, label: seen.append((argv, label))
+    desk.shell.open_tool_window = lambda argv, label, **kw: seen.append((argv, label))
+    desk.shell._tab = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("tab"))
     desk.shell._activate(item)
     desk.shell.installed_application_menu_items()[0].action()
     assert seen == [(["/bin/true"], "Sample Chat")] * 2
@@ -75,6 +78,45 @@ def installed_desktop_entry_is_discovered_on_desktop():
         desk.shell._activate(item)
         launch.assert_called_once_with(desk.shell, entry)
 
+def llm_chat_prefers_the_gui_frontend():
+    assets = [(model("bonsai-8b"), Path("/models/chat"))]
+
+    def exe(name, *args, **kwargs):
+        if name == "kilix-bonsai-chat-gui":
+            return "/bin/kilix-bonsai-chat-gui"
+        if name == "kilix-bonsai":
+            return "/bin/kilix-bonsai"
+        if name == "kilix-bonsai-chat":
+            return "/bin/kilix-bonsai-chat"
+        return None
+
+    with patch.object(A, "executable", side_effect=exe):
+        rows, _ = A.model_records(assets, {}, local_models={})
+    chat = next(row for row in rows if row["id"] == "llm-chat")
+    assert chat["argv"] == ("/bin/kilix-bonsai-chat-gui",)
+    assert chat["gui"] is True
+    desk = H.make_desk()
+    seen = {}
+    desk.shell.open_in_xpane = lambda argv, title, **kw: seen.update(
+        argv=argv, title=title, kw=kw) or True
+    desk.shell._tab = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("tab"))
+    assert A.launch(desk.shell, chat) is True
+    assert seen["argv"] == ["/bin/kilix-bonsai-chat-gui"]
+    assert seen["title"] == "LLM Chat"
+    assert seen["kw"]["icon"] == "chat"
+
+    def tui_only(name, *args, **kwargs):
+        if name == "kilix-bonsai-chat-gui":
+            return None
+        return exe(name, *args, **kwargs)
+
+    with patch.object(A, "executable", side_effect=tui_only):
+        rows, _ = A.model_records(assets, {}, local_models={})
+    fallback = next(row for row in rows if row["id"] == "llm-chat")
+    assert fallback["argv"] == ("/bin/kilix-bonsai-chat",)
+    assert not fallback.get("gui")
+
+
 def empty_inventory_does_not_install_models_or_programs():
     with patch("system_llm.installed", return_value={}), \
             patch.object(A, "executable", return_value=None), \
@@ -87,5 +129,6 @@ interfaces_require_models_and_respect_declines()
 partial_and_removed_files_are_not_models()
 desktop_and_menu_launch_same_app_and_refresh_removes_it()
 installed_desktop_entry_is_discovered_on_desktop()
+llm_chat_prefers_the_gui_frontend()
 empty_inventory_does_not_install_models_or_programs()
 print("ok")

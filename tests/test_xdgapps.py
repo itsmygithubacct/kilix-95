@@ -268,21 +268,33 @@ def launch_spec():
     class _StubShell:
         def __init__(self):
             self.spec = None
+            self.window = None
 
         def launch(self, spec, path=None):
             self.spec = spec
+
+        def open_in_xpane(self, argv, title, **kwargs):
+            self.window = (argv, title, kwargs)
 
     gui = {"name": "Gui", "exec": "/usr/bin/gui", "terminal": False,
            "workdir": ""}
     term = {"name": "Term", "exec": "htop", "terminal": True,
             "workdir": "/data"}
+    browser = {"name": "Firefox", "exec": "firefox %u", "terminal": False,
+               "workdir": ""}
     sh = _StubShell()
     xdgapps.launch(sh, gui)
-    assert sh.spec == {"Name": "Gui", "Exec": "/usr/bin/gui", "Path": "~",
-                       "X-Kilix-Open": "run"}
+    assert sh.window[0] == ["/usr/bin/gui"], sh.window
+    assert sh.window[1] == "Gui"
+    assert sh.spec is None
     xdgapps.launch(sh, term)
     assert sh.spec["X-Kilix-Open"] == "tab"
     assert sh.spec["Path"] == "/data"
+    sh.spec = None
+    xdgapps.launch(sh, browser)
+    assert sh.spec["Name"] == "Firefox"
+    assert sh.spec["X-Kilix-Open"] == "run"
+    assert sh.window[1] == "Gui", "a browser click must not open an XPane"
 
 
 def virtualbox_launches_in_run_tab():
