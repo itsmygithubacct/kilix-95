@@ -132,7 +132,8 @@ class Taskbar:
         m = time.strftime("%I:%M %p", time.localtime(now))
         if m != self._minute:
             self._minute = m
-            self.invalidate()
+            x0, y0, x1, y1 = self._clock_rect()
+            self.desk.add_damage(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
 
     # drawing --------------------------------------------------------------
     def draw(self, fb, d):

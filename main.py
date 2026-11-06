@@ -77,7 +77,7 @@ import host as kilix_host
 
 KILIX_HOME = kilix_host.add_kilix_config_path()   # kilix_sdk
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 try:
     from kilix_sdk import require_compatible as require_kilix_sdk
@@ -250,6 +250,147 @@ def frame_transmit(prev, cur, width, height):
     return "band", band
 
 
+def _inside(rect, width, height):
+    x, y, w, h = rect
+    return (w > 0 and h > 0 and x >= 0 and y >= 0
+            and x + w <= width and y + h <= height)
+
+
+def _subtract_rect(outer, inner):
+    """Rectangles covering ``outer`` without the part that lies in ``inner``."""
+    ox, oy, ow, oh = outer
+    ix, iy, iw, ih = inner
+    x0, y0 = max(ox, ix), max(oy, iy)
+    x1, y1 = min(ox + ow, ix + iw), min(oy + oh, iy + ih)
+    if x1 <= x0 or y1 <= y0:
+        return (outer,)
+    pieces = []
+    if y0 > oy:
+        pieces.append((ox, oy, ow, y0 - oy))
+    if oy + oh > y1:
+        pieces.append((ox, y1, ow, oy + oh - y1))
+    if x0 > ox:
+        pieces.append((ox, y0, x0 - ox, y1 - y0))
+    if ox + ow > x1:
+        pieces.append((x1, y0, ox + ow - x1, y1 - y0))
+    return tuple(pieces)
+
+
+def _spans_match(prev, cur, width, y, spans):
+    """True when ``prev`` and ``cur`` match on this row outside ``spans``."""
+    cursor = 0
+    stride = width * 3
+    row = y * stride
+    for x0, x1 in spans:
+        if x0 > cursor:
+            start = row + cursor * 3
+            end = row + x0 * 3
+            if prev[start:end] != cur[start:end]:
+                return False
+        cursor = max(cursor, x1)
+    if cursor < width:
+        start = row + cursor * 3
+        if prev[start:row + stride] != cur[start:row + stride]:
+            return False
+    return True
+
+
+def frame_move(prev, cur, width, height, old, new):
+    """Copy one translated window and return the strips that still need pixels.
+
+    ``old`` and ``new`` are ``(x, y, w, h)`` of the same window. The result is
+    ``(source, destination, residuals)`` for the presenter's compose command,
+    or None when the frames are not that translation.
+    """
+    if not _inside(old, width, height) or not _inside(new, width, height):
+        return None
+    if (old[2], old[3]) != (new[2], new[3]):
+        return None
+    dx, dy = new[0] - old[0], new[1] - old[1]
+    if dx == 0 and dy == 0:
+        return None
+    ix0, iy0 = max(old[0], new[0]), max(old[1], new[1])
+    ix1 = min(old[0] + old[2], new[0] + new[2])
+    iy1 = min(old[1] + old[3], new[1] + new[3])
+    if ix1 <= ix0 or iy1 <= iy0:
+        return None
+    stride = width * 3
+    copy_w = ix1 - ix0
+    row_bytes = copy_w * 3
+    for row in range(iy1 - iy0):
+        source_at = (iy0 - dy + row) * stride + (ix0 - dx) * 3
+        dest_at = (iy0 + row) * stride + ix0 * 3
+        if prev[source_at:source_at + row_bytes] != cur[dest_at:dest_at + row_bytes]:
+            return None
+    covered = (old, new)
+    for y in range(height):
+        spans = []
+        for x, ry, w, h in covered:
+            if ry <= y < ry + h:
+                spans.append((x, x + w))
+        spans.sort()
+        merged = []
+        for x0, x1 in spans:
+            if merged and x0 <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], x1))
+            else:
+                merged.append((x0, x1))
+        if not _spans_match(prev, cur, width, y, merged):
+            return None
+    source = (ix0 - dx, iy0 - dy, copy_w, iy1 - iy0)
+    dest = (ix0, iy0, copy_w, iy1 - iy0)
+    residuals = _subtract_rect(old, new) + _subtract_rect(new, old)
+    if _rect_pixels(residuals) > int(width * height * 3 * _BAND_FULL_RATIO):
+        return None
+    return source, dest, residuals
+
+
+def frame_plan(prev, cur, width, height, move=None):
+    """Choose the bytes Desk.blit sends, including a window translation.
+
+    ``move`` is ``(old_rect, new_rect)`` when one window kept its size and
+    changed origin. A matching translation uses the presenter's compose
+    command plus the exposed strips. Anything else uses the rectangle decision.
+    """
+    if (move is not None and prev is not None
+            and hasattr(kilix_graphics, "build_compose")):
+        try:
+            planned = frame_move(prev, cur, width, height, move[0], move[1])
+        except (TypeError, ValueError):
+            planned = None
+        if planned is not None:
+            return "move", planned
+    return frame_transmit(prev, cur, width, height)
+
+
+def _intersects(x, y, w, h, rects):
+    for rx, ry, rw, rh in rects:
+        if x < rx + rw and rx < x + w and y < ry + rh and ry < y + h:
+            return True
+    return False
+
+
+def _paste_covered(fb, surf, x, y, mask, covered):
+    """Paste ``surf`` where it meets ``covered``, back-to-front safe.
+
+    The repaired region can be a slice of a window. Pasting the whole window
+    would cover a front window that sits outside that slice. Overlapping
+    slices share one mask so a translucent edge is applied once.
+    """
+    clip = Image.new("L", surf.size, 0)
+    pen = ImageDraw.Draw(clip)
+    for rx, ry, rw, rh in covered:
+        ix0 = max(0, int(rx) - x)
+        iy0 = max(0, int(ry) - y)
+        ix1 = min(surf.size[0], int(rx) + int(rw) - x)
+        iy1 = min(surf.size[1], int(ry) + int(rh) - y)
+        if ix1 > ix0 and iy1 > iy0:
+            pen.rectangle((ix0, iy0, ix1 - 1, iy1 - 1), fill=255)
+    if mask is not None:
+        clip = ImageChops.multiply(clip, mask)
+    fb.paste(surf, (x, y), clip)
+
+
 def crash_report(text):
     """Keep a fault's traceback in the provider's private crash log.
 
@@ -287,6 +428,8 @@ class Desk:
         else:
             self.w, self.h = size or (1024, 768)
         self.fb = Image.new("RGB", (self.w, self.h), T.DESKTOP)
+        self._placed = None
+        self._frame_ready = False
         self.dirty = True
         self.running = True
         self.clipboard = ""
@@ -498,13 +641,162 @@ class Desk:
             pass
 
     # ── rendering ───────────────────────────────────────────────────────────
-    def render(self):
-        if not self.dirty:
+    @property
+    def dirty(self):
+        return self._dirty
+
+    @dirty.setter
+    def dirty(self, value):
+        self._dirty = bool(value)
+        # A bare assignment covers the whole frame. add_damage records a part.
+        self._damage = None if self._dirty else []
+
+    def add_damage(self, x, y, w, h):
+        """Mark one rectangle dirty without throwing away a partial frame."""
+        x, y, w, h = int(x), int(y), int(w), int(h)
+        if w <= 0 or h <= 0 or self.w < 1 or self.h < 1:
+            self.dirty = True
             return
+        x0, y0 = max(0, x), max(0, y)
+        x1, y1 = min(self.w, x + w), min(self.h, y + h)
+        if x1 <= x0 or y1 <= y0:
+            return
+        if self._damage is None:
+            self._dirty = True
+            return
+        self._damage.append((x0, y0, x1 - x0, y1 - y0))
+        area = sum(rect[2] * rect[3] for rect in self._damage)
+        if len(self._damage) > 12 or area > self.w * self.h // 2:
+            self._damage = None
+        self._dirty = True
+
+    def _cursor_box(self, x, y):
+        """A box that contains every software-cursor shape."""
+        return int(x) - 14, int(y) - 14, 40, 40
+
+    def _placement(self):
+        rows = []
+        for win in self.wm.windows:
+            if win.minimized:
+                continue
+            rows.append((id(win), int(win.x), int(win.y), int(win.w),
+                         int(win.h), bool(win.compose_mask)))
+        return tuple(rows)
+
+    def _translation(self):
+        """The one visible window that changed origin, if that is all that moved."""
+        previous = self._placed
+        if not previous:
+            return None
+        current = {
+            ident: (x, y, w, h, masked)
+            for ident, x, y, w, h, masked in self._placement()}
+        if len(current) != len(previous):
+            return None
+        moved = []
+        for ident, x, y, w, h, masked in previous:
+            now = current.get(ident)
+            if now is None or now[4] or masked:
+                return None
+            if now[:4] == (x, y, w, h):
+                continue
+            if now[2:] != (w, h, False):
+                return None
+            moved.append(((x, y, w, h), now[:4]))
+        if len(moved) != 1:
+            return None
+        return moved[0]
+
+    def _can_repair(self, rects):
+        if not rects or not self._frame_ready:
+            return False
+        if (self.menus.active or self.switcher is not None
+                or self.drag_outline or self.window_animation
+                or self._tooltip or self.bsod):
+            return False
+        clips = getattr(self, "paperclips", None)
+        if clips is not None and clips.enabled():
+            return False
+        wall = getattr(self.shell, "_wall", None)
+        if wall is None or wall.size != (self.w, self.h):
+            return False
+        if getattr(self.shell.grid, "band", None):
+            return False
+        return True
+
+    def _covered_wall(self, fb, rects):
+        wall = self.shell._wall
+        for x, y, w, h in rects:
+            x0, y0 = max(0, int(x)), max(0, int(y))
+            x1 = min(self.w, int(x) + int(w))
+            y1 = min(self.h, int(y) + int(h))
+            if x1 <= x0 or y1 <= y0:
+                continue
+            fb.paste(wall.crop((x0, y0, x1, y1)), (x0, y0))
+
+    def _repair(self, rects):
+        """Repaint only ``rects`` on top of the frame already in ``self.fb``."""
+        if not self._can_repair(rects):
+            return False
+        found = self.shell.grid.damage_cells(rects)
+        if found is None:
+            return False
+        cells = [cell[1:] for cell in found]
+        covered = list(rects) + cells
+        fb = self.fb
+        d = W.drawer(fb)
+        # Restore every icon cell before drawing it. Drawing onto the old
+        # icon would composite an antialiased label a second time.
+        self._covered_wall(fb, covered)
+        self.shell.grid.paint_cells(d, fb, found)
+        for win in list(self.wm.windows):
+            if win.minimized:
+                continue
+            if not _intersects(win.x, win.y, win.w, win.h, covered):
+                continue
+            try:
+                surf = win.render()
+            except Exception:
+                self.window_fault(win, "drawing")
+                continue
+            _paste_covered(fb, surf, win.x, win.y, win.compose_mask, covered)
+        tx0, ty0, tx1, ty1 = self.taskbar.rect()
+        if _intersects(tx0, ty0, tx1 - tx0 + 1, ty1 - ty0 + 1, covered):
+            self.taskbar.draw(fb, d)
+        if self.draw_cursor:
+            self._paint_cursor(d)
+        return True
+
+    def _finish_frame(self):
+        # Blit compares the placement saved by the previous frame.
+        self.blit()
+        self._placed = self._placement()
+        self._frame_ready = True
+
+    def _settle_paint(self):
+        """Drop invalidations that the paint itself just drew.
+
+        A file listing updates its status line while the window is drawn.
+        That request would schedule the same frame again.
+        """
+        self._dirty = False
+        self._damage = []
+
+    def render(self):
+        if not self._dirty:
+            return
+        damage = self._damage
+        self._dirty = False
+        self._damage = []
         if self.bsod:
             self.fb = self._bsod_image()
-            self.dirty = False
+            self._frame_ready = False
             self.blit()
+            self._settle_paint()
+            return
+        if damage and self._repair(damage):
+            self._finish_frame()
+            self._settle_paint()
             return
         fb = self.fb
         d = W.drawer(fb)
@@ -530,8 +822,8 @@ class Desk:
             self._draw_tooltip(d)
         if self.draw_cursor:
             self._paint_cursor(d)
-        self.dirty = False
-        self.blit()
+        self._finish_frame()
+        self._settle_paint()
 
     def _sync_pointer(self, ev):
         """Remember which cursor the pixel under the pointer should show.
@@ -977,15 +1269,22 @@ class Desk:
         # _last_blit is stamped only when bytes are transmitted, so the
         # keepalive cadence tracks real retransmissions.
         regions = None
+        compose = None
         if (not force_full and img is None
                 and getattr(self, "_blit_base", None)
                 == ("fb", self.w, self.h)):
-            kind, found = frame_transmit(
-                getattr(self, "_prev_rgb", None), rgb, self.w, self.h)
+            kind, found = frame_plan(
+                getattr(self, "_prev_rgb", None), rgb, self.w, self.h,
+                move=self._translation())
             if kind == "unchanged":
                 self._prev_rgb = rgb
                 return                     # frame unchanged: nothing to send
-            if kind == "rects":
+            if kind == "move":
+                source, dest, residuals = found
+                compose = kilix_graphics.build_compose(
+                    self.img_id, source, dest, in_tmux=in_tmux)
+                regions = residuals
+            elif kind == "rects":
                 regions = found
             elif kind == "band":
                 y0, bh = found
@@ -993,34 +1292,8 @@ class Desk:
         if img is None:
             self._prev_rgb = rgb
         self._last_blit = time.time()
-        if regions is not None:
-            for rect in regions:
-                x, y, rw, rh = (int(rect[0]), int(rect[1]),
-                                int(rect[2]), int(rect[3]))
-                if hasattr(kilix_graphics, "extract_rect"):
-                    data = kilix_graphics.extract_rect(
-                        rgb, self.w, self.h, (x, y, rw, rh))
-                else:
-                    data = rgb[y * self.w * 3:(y + rh) * self.w * 3]
-                    x, rw = 0, self.w
-                if self.stream:
-                    kilix_graphics.blit_frame_edit(
-                        self.term, data, rw, rh, x, y, self.img_id,
-                        in_tmux=in_tmux)
-                    continue
-                # unique per-edit names: a lagging kitty must ENOENT on a
-                # stale escape, never mmap a slot reused with different
-                # geometry (kitty deletes each file after reading).
-                self._band_n = getattr(self, "_band_n", 0) + 1
-                path = self._frame_path("band", self._band_n)
-                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                if hasattr(os, "O_NOFOLLOW"):
-                    flags |= os.O_NOFOLLOW
-                fd = os.open(path, flags, 0o600)
-                with os.fdopen(fd, "wb") as f:
-                    f.write(data)
-                self.term.write(kilix_graphics.build_frame_edit_file(
-                    path, rw, rh, x, y, self.img_id))
+        if regions is not None or compose is not None:
+            self._send_damage(rgb, regions or (), compose, in_tmux)
             return
         self._blit_base = ("fb" if img is None else "img", self.w, self.h)
         if self.stream:
@@ -1046,6 +1319,42 @@ class Desk:
             f"s={self.w},v={self.h},c={self.term.cols},r={self.term.rows},"
             f"q=2,C=1,N=1;{payload}\x1b\\")
         self._last_full_blit = self._last_blit
+
+    def _send_damage(self, rgb, regions, compose, in_tmux):
+        """Send a compose and rectangle edits as one synchronized update."""
+        edits = []
+        if compose:
+            edits.append(compose)
+        for rect in regions:
+            x, y, rw, rh = (int(rect[0]), int(rect[1]),
+                            int(rect[2]), int(rect[3]))
+            if rw <= 0 or rh <= 0:
+                continue
+            if hasattr(kilix_graphics, "extract_rect"):
+                data = kilix_graphics.extract_rect(
+                    rgb, self.w, self.h, (x, y, rw, rh))
+            else:
+                data = rgb[y * self.w * 3:(y + rh) * self.w * 3]
+                x, rw = 0, self.w
+            if self.stream:
+                edits.append(kilix_graphics.build_frame_edit(
+                    data, rw, rh, x, y, self.img_id, in_tmux=in_tmux))
+                continue
+            # unique per-edit names: a lagging kitty must ENOENT on a
+            # stale escape, never mmap a slot reused with different
+            # geometry (kitty deletes each file after reading).
+            self._band_n = getattr(self, "_band_n", 0) + 1
+            path = self._frame_path("band", self._band_n)
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            fd = os.open(path, flags, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            edits.append(kilix_graphics.build_frame_edit_file(
+                path, rw, rh, x, y, self.img_id))
+        if edits:
+            self.term.write("\x1b[?2026h" + "".join(edits) + "\x1b[?2026l")
 
     def _keepalive(self, now, started):
         # Band edits need an existing image. Their activity must not postpone
@@ -1174,6 +1483,7 @@ class Desk:
         # route to the edge window instead of missing every window.
         x = max(0, min(raw["x"], self.w - 1))
         y = max(0, min(raw["y"], self.h - 1))
+        self._pointer_was = self.mouse_pos
         self.mouse_pos = (x, y)
         mods = dict(shift=bool(b & 4), alt=bool(b & 8), ctrl=bool(b & 16))
         if b & 64:                    # wheel: 0 up, 1 down, 2/3 horizontal
@@ -1217,7 +1527,9 @@ class Desk:
 
     def _dispatch_mouse(self, ev):
         if self.draw_cursor and (ev.move or ev.press):
-            self.dirty = True
+            old = getattr(self, "_pointer_was", self.mouse_pos)
+            self.add_damage(*self._cursor_box(*old))
+            self.add_damage(*self._cursor_box(*self.mouse_pos))
         self._sync_pointer(ev)
         if self.menus.active:
             if self.menus.on_mouse(ev):

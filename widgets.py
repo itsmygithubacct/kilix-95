@@ -1009,6 +1009,28 @@ class IconGrid(Widget):
                 return i
         return None
 
+    def damage_cells(self, rects):
+        """Desktop icon cells that meet ``rects``.
+
+        None means the caller must draw the whole frame. A cell is larger
+        than the damage that touched it. The caller restores wallpaper for
+        the whole cell, then ``paint_cells`` draws each icon once.
+        """
+        if not self.desktop or self.band:
+            return None
+        cells = []
+        for i, _it in enumerate(self.items):
+            cx, cy = self._cell(i)
+            if any(cx < rx + rw and rx < cx + T.CELL_W
+                   and cy < ry + rh and ry < cy + T.CELL_H
+                   for rx, ry, rw, rh in rects):
+                cells.append((i, cx, cy, T.CELL_W, T.CELL_H))
+        return cells
+
+    def paint_cells(self, d, img, cells):
+        for i, cx, cy, _w, _h in cells:
+            self._draw_item(d, img, self.items[i], cx, cy, i in self.sel)
+
     def draw(self, d, img):
         if not self.desktop:
             # windows clip their icon grid: render to an own surface so

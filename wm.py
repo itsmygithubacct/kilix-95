@@ -117,7 +117,13 @@ class Window:
 
     def invalidate(self):
         self.dirty = True
-        self.desk.dirty = True
+        # A pane can accept a frame before it has a place on the desk.
+        if getattr(self, "x", None) is None or getattr(self, "y", None) is None:
+            self.desk.dirty = True
+            return
+        self.desk.add_damage(self.x, self.y, self.w, self.h)
+        x0, y0, x1, y1 = self.desk.taskbar.rect()
+        self.desk.add_damage(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
 
     def close(self):
         self.desk.wm.close(self)
@@ -574,12 +580,19 @@ class WM:
             self.desk.dirty = True
             return
         x, y, w, h = rect
+        old = (win.x, win.y, win.w, win.h)
         if (w, h) != (win.w, win.h):
             win.w, win.h = w, h
             win.surface = None
             win.on_resize()
+            win.x, win.y = x, y
+            self.desk.dirty = True
+            return
+        if (x, y) == (old[0], old[1]):
+            return
         win.x, win.y = x, y
-        self.desk.dirty = True
+        self.desk.add_damage(*old)
+        self.desk.add_damage(win.x, win.y, win.w, win.h)
 
     def end_drag(self):
         if self.drag and self.desk.drag_outline:
