@@ -201,6 +201,27 @@ class DeskTerm(kilix_term.Term):
 
 
 CRASH_LOG_LIMIT = 1024 * 1024
+# A tall row edit is most of the frame. Sending the whole placement is simpler
+# than shipping a band that large, and it re-arms the damage path.
+_BAND_FULL_RATIO = 0.65
+
+
+def frame_transmit(prev, cur, width, height):
+    """Choose the bytes Desk.blit sends for two RGB frames.
+
+    Returns ("unchanged", None), ("band", (y, rows)), or ("full", None).
+    A band taller than 65% of the frame is a full placement. Missing or
+    mismatched history is a full placement too.
+    """
+    if (prev is None or len(prev) != len(cur)
+            or not hasattr(kilix_graphics, "diff_band")):
+        return "full", None
+    band = kilix_graphics.diff_band(prev, cur, width, height)
+    if band is None:
+        return "unchanged", None
+    if band[1] > int(height * _BAND_FULL_RATIO):
+        return "full", None
+    return "band", band
 
 
 def crash_report(text):
@@ -933,18 +954,15 @@ class Desk:
         # keepalive cadence tracks real retransmissions.
         band = None
         if (not force_full and img is None
-                and hasattr(kilix_graphics, "diff_band")
-                and getattr(self, "_prev_rgb", None) is not None
-                and len(self._prev_rgb) == len(rgb)
                 and getattr(self, "_blit_base", None)
                 == ("fb", self.w, self.h)):
-            band = kilix_graphics.diff_band(self._prev_rgb, rgb,
-                                            self.w, self.h)
-            if band is None:
+            kind, found = frame_transmit(
+                getattr(self, "_prev_rgb", None), rgb, self.w, self.h)
+            if kind == "unchanged":
                 self._prev_rgb = rgb
                 return                     # frame unchanged: nothing to send
-            if band[1] > int(self.h * 0.65):
-                band = None                # mostly changed: full frame wins
+            if kind == "band":
+                band = found
         if img is None:
             self._prev_rgb = rgb
         self._last_blit = time.time()
