@@ -1,7 +1,9 @@
 """Default Control Panel paths reach real host controls rather than opt-in extras."""
+import os
 from unittest.mock import patch
 
 import harness as H
+import shell as shell_mod
 from apps.controlpanel import ControlPanel
 from apps.printers import Printers
 
@@ -83,8 +85,79 @@ def test_disks_opens_on_the_desktop_with_the_session_bus():
     assert seen['kwargs']['icon'] == 'settings'
 
 
+def test_power_uses_the_pinned_host():
+    desk = H.make_desk()
+    seen = {}
+    pinned_home = "/pinned/kilix-home"
+    pinned = os.path.join(pinned_home, "kilix")
+
+    def resolve(name):
+        assert name != "kilix", "power must use the pinned host before PATH"
+        return "/usr/bin/env" if name == "env" else None
+
+    def opened(argv, title, **kwargs):
+        seen["argv"] = argv
+        seen["title"] = title
+        return True
+
+    real_access = os.access
+
+    def access(path, mode):
+        if path == pinned:
+            return True
+        return real_access(path, mode)
+
+    with patch.dict("os.environ", {
+            "PLEB_DESKTOP_BUS_ADDRESS": "unix:path=/tmp/desk-bus"}, clear=False), \
+            patch.object(shell_mod, "KILIX_HOME", pinned_home), \
+            patch.object(shell_mod.os, "access", side_effect=access), \
+            patch.object(desk.shell, "_resolve_program", side_effect=resolve), \
+            patch.object(desk.shell, "open_in_xpane", side_effect=opened), \
+            patch.object(desk.shell, "_tab") as tab:
+        assert desk.shell.open_device_settings("power")
+        tab.assert_not_called()
+    assert seen["title"] == "Power"
+    assert seen["argv"][-3:] == [pinned, "power-controls", "--native"]
+
+
+def test_power_falls_back_when_the_pinned_host_is_missing():
+    desk = H.make_desk()
+    seen = {}
+    pinned_home = "/pinned/kilix-home"
+    pinned = os.path.join(pinned_home, "kilix")
+
+    def resolve(name):
+        return {
+            "kilix": "/usr/local/bin/kilix",
+            "env": "/usr/bin/env",
+        }.get(name)
+
+    def opened(argv, title, **kwargs):
+        seen["argv"] = argv
+        return True
+
+    real_access = os.access
+
+    def access(path, mode):
+        if path == pinned:
+            return False
+        return real_access(path, mode)
+
+    with patch.dict("os.environ", {
+            "PLEB_DESKTOP_BUS_ADDRESS": "unix:path=/tmp/desk-bus"}, clear=False), \
+            patch.object(shell_mod, "KILIX_HOME", pinned_home), \
+            patch.object(shell_mod.os, "access", side_effect=access), \
+            patch.object(desk.shell, "_resolve_program", side_effect=resolve), \
+            patch.object(desk.shell, "open_in_xpane", side_effect=opened):
+        assert desk.shell.open_device_settings("power")
+    assert seen["argv"][-3:] == [
+        "/usr/local/bin/kilix", "power-controls", "--native"]
+
+
 test_controls_available_without_nostalgia()
 test_physical_printer_action_is_distinct_from_printing_to_a_folder()
 test_lock_uses_the_session_command_and_missing_control_is_visible()
 test_disks_opens_on_the_desktop_with_the_session_bus()
+test_power_uses_the_pinned_host()
+test_power_falls_back_when_the_pinned_host_is_missing()
 print('desktop device controls passed')

@@ -122,6 +122,10 @@ class Shell:
                 and self.state.get("theme") not in themes.THEMES):
             self.state["theme"] = themes.DEFAULT_THEME
             renamed = True
+        era = themes.LEGACY_ERAS.get(self.state.get("era_profile"))
+        if era is not None:
+            self.state["era_profile"] = era
+            renamed = True
         if self.state.get("era_profile") not in themes.ERAS:
             self.state["era_profile"] = themes.DEFAULT_ERA
             renamed = True
@@ -733,14 +737,15 @@ class Shell:
             if xdgapps.is_browser_program(argv[0]):
                 self.open_x11_tab(argv, name, cwd=cwd, fill=True)
             else:
-                self.open_in_xpane(argv, name, cwd=cwd)
+                self.open_in_xpane(argv, name, icon=spec.get("Icon") or "exe",
+                                   cwd=cwd)
         elif mode == "window":
             self._spawn_kitty_launch(
                 ["--type=os-window"], sanitized_cmd, name, cwd)
         elif mode == "fullscreen":
             # X11 app filling the whole screen, on a private Xvfb (XPane)
-            self.open_in_xpane(argv, name, cwd=cwd,
-                               app_size=self.desk.size())
+            self.open_in_xpane(argv, name, icon=spec.get("Icon") or "exe",
+                               cwd=cwd, app_size=self.desk.size())
         else:
             self._spawn_kitty_launch(["--type=tab"], sanitized_cmd, name, cwd)
 
@@ -809,6 +814,18 @@ class Shell:
         local = os.path.join(os.path.expanduser("~"), ".local", "bin", name)
         return local if os.access(local, os.X_OK) else None
 
+    def _device_program(self, name):
+        """Resolve a device-tool binary.
+
+        Power is this desk's Kilix host, which a source checkout launches by
+        path. The other tools are system programs and stay on PATH.
+        """
+        if name == "kilix":
+            pinned = os.path.join(KILIX_HOME, "kilix")
+            if os.access(pinned, os.X_OK):
+                return pinned
+        return self._resolve_program(name)
+
     def _tab(self, argv, title, cwd=None, env=None):
         kitten = self._kitten()
         if not kitten or not os.environ.get("KITTY_LISTEN_ON"):
@@ -865,7 +882,7 @@ class Shell:
             # Locking the session is not a window, and it must not open a tab.
             return self._popen([pleb, "lock"])
         spec = self._DEVICE_ARGV[tool]
-        program = self._resolve_program(spec[0])
+        program = self._device_program(spec[0])
         if not program:
             wm.msgbox(self.desk, labels[tool],
                       f"{spec[0]} is not installed.", icon="error")

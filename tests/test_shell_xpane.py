@@ -251,6 +251,30 @@ def copied_launcher_expands_field_codes_without_argument_debris():
         "demo", "%", "Demo Name", desktop_path, "--icon", "demo-icon",
     ], seen
     assert seen["title"] == "Demo Name"
+    assert seen["kw"]["icon"] == "demo-icon"
+
+
+def desktop_window_keeps_the_launcher_icon():
+    d = H.make_desk()
+    seen = {}
+    d.shell.open_in_xpane = lambda argv, title, cwd=None, **kw: seen.update(
+        argv=argv, title=title, kw=kw) or True
+    d.shell.launch({
+        "Type": "Application", "Name": "Notes", "Icon": "notepad",
+        "Exec": "notes", "X-Kilix-Open": "run",
+    })
+    assert seen["kw"]["icon"] == "notepad", seen
+    d.shell.launch({
+        "Type": "Application", "Name": "Notes",
+        "Exec": "notes", "X-Kilix-Open": "run",
+    })
+    assert seen["kw"]["icon"] == "exe", seen
+    d.shell.launch({
+        "Type": "Application", "Name": "Notes", "Icon": "settings",
+        "Exec": "notes", "X-Kilix-Open": "fullscreen",
+    })
+    assert seen["kw"]["icon"] == "settings", seen
+    assert seen["kw"]["app_size"] == d.size(), seen
 
 
 def malformed_copied_launcher_is_rejected():
@@ -277,6 +301,7 @@ browser_fallback_stays_in_its_existing_tab()
 copied_gui_launcher_defaults_to_run_and_strips_field_codes()
 copied_terminal_launchers_strip_field_codes_before_shell_execution()
 copied_launcher_expands_field_codes_without_argument_debris()
+desktop_window_keeps_the_launcher_icon()
 malformed_copied_launcher_is_rejected()
 print("ok")
 

@@ -89,6 +89,8 @@ def main():
     shell.open_in_xpane = lambda argv, title, **kw: seen.update(
         argv=argv, title=title, kw=kw)
     shell.launch = lambda spec, **kw: seen.update(spec=spec)
+    shell.open_x11_tab = lambda argv, title, **kw: seen.update(
+        tab_argv=argv, tab_title=title, tab_kw=kw)
     ctx["Open in window"].action()
     assert seen["argv"] == ["/usr/bin/true"], seen.get("argv")
     assert seen["title"] == "Sample Browser", seen.get("title")
@@ -104,9 +106,11 @@ def main():
 
     seen.clear()
     ctx["Open in tab"].action()
-    assert seen["spec"]["Name"] == "Sample Browser", seen.get("spec")
-    assert seen["spec"]["Exec"] == "/usr/bin/true", seen.get("spec")
+    assert seen["tab_argv"] == ["/usr/bin/true"], seen.get("tab_argv")
+    assert seen["tab_title"] == "Sample Browser", seen.get("tab_title")
+    assert seen["tab_kw"].get("fill") is False, seen.get("tab_kw")
     assert "argv" not in seen, "tab mode must not open an xpane"
+    assert "spec" not in seen, "a GUI tab must not use the desktop-window spec"
 
     # VirtualBox must stay in a kilix-run tab; its fullscreen option is tab
     # fullscreen, not the desktop/XPane window path that can escape the desk.

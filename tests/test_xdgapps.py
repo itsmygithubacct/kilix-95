@@ -269,12 +269,16 @@ def launch_spec():
         def __init__(self):
             self.spec = None
             self.window = None
+            self.tab = None
 
         def launch(self, spec, path=None):
             self.spec = spec
 
         def open_in_xpane(self, argv, title, **kwargs):
             self.window = (argv, title, kwargs)
+
+        def open_x11_tab(self, argv, title, **kwargs):
+            self.tab = (argv, title, kwargs)
 
     gui = {"name": "Gui", "exec": "/usr/bin/gui", "terminal": False,
            "workdir": ""}
@@ -287,14 +291,25 @@ def launch_spec():
     assert sh.window[0] == ["/usr/bin/gui"], sh.window
     assert sh.window[1] == "Gui"
     assert sh.spec is None
+    assert sh.tab is None
     xdgapps.launch(sh, term)
     assert sh.spec["X-Kilix-Open"] == "tab"
     assert sh.spec["Path"] == "/data"
+    assert sh.tab is None
     sh.spec = None
+    sh.window = None
     xdgapps.launch(sh, browser)
-    assert sh.spec["Name"] == "Firefox"
-    assert sh.spec["X-Kilix-Open"] == "run"
-    assert sh.window[1] == "Gui", "a browser click must not open an XPane"
+    assert sh.tab[0] == ["firefox"], sh.tab
+    assert sh.tab[1] == "Firefox"
+    assert sh.tab[2]["fill"] is True
+    assert sh.spec is None
+    assert sh.window is None, "a browser click must not open an XPane"
+    sh.tab = None
+    xdgapps.launch(sh, gui, "tab")
+    assert sh.tab[0] == ["/usr/bin/gui"], sh.tab
+    assert sh.tab[2]["fill"] is False
+    assert sh.window is None
+    assert sh.spec is None
 
 
 def virtualbox_launches_in_run_tab():

@@ -43,6 +43,12 @@ THEMES = {
 ERAS = ["Redmond 95 RTM", "Redmond 95 Plus!", "Late Win9x", "Kilix XP"]
 DEFAULT_THEME = "Redmond 95"
 DEFAULT_ERA = "Redmond 95 Plus!"
+# Saved before the classic theme was renamed. That theme stored the RTM era.
+LEGACY_ERAS = {
+    "Windows 95": "Redmond 95 RTM",
+    "Windows 95 RTM": "Redmond 95 RTM",
+    "Windows 95 Plus!": "Redmond 95 Plus!",
+}
 
 PATTERNS = ["None", "Bricks", "Circuit", "Plaid", "Scales", "Stars"]
 CURSORS = ["Standard", "Black", "Inverted", "Dinosaur"]

@@ -2,8 +2,8 @@
 
 The scanner itself lives in the host SDK (`kilix_sdk.xdgapps`, SDK 1.8) so
 every desktop and the launcher catalog share one implementation. This module
-keeps the desktop-side half: icon mapping and `launch(shell, entry)`, which
-hands a discovered entry to Shell.launch. Everything is driven by
+keeps the desktop-side half: icon mapping and `launch(shell, entry)`.
+Everything is driven by
 $XDG_DATA_HOME / $XDG_DATA_DIRS (spec defaults when unset); nothing about the
 host machine is hardcoded.
 """
@@ -131,13 +131,29 @@ def launch(shell, entry, mode=None):
         shell.open_in_xpane(argv, name, icon=icon_for(entry),
                             cwd=entry.get("workdir") or None, app_size=size)
         return
-    spec = {
+    if mode == "tab" and not entry.get("terminal"):
+        # shell.launch treats "run" as a desktop window, so a requested tab
+        # has to be a kilix-run tab here. Field codes are stripped the same
+        # way a copied launcher strips them.
+        import shell as shell_mod
+        argv = shell_mod.desktop_exec_argv({
+            "Name": name,
+            "Exec": entry.get("exec", ""),
+            "Icon": entry.get("icon") or "",
+        })
+        if not argv:
+            wm.msgbox(shell.desk, name, "Launcher has no Exec line.",
+                      icon="error")
+            return
+        shell.open_x11_tab(argv, name, cwd=entry.get("workdir") or None,
+                           fill=is_browser_program(argv[0]))
+        return
+    shell.launch({
         "Name": name,
         "Exec": entry.get("exec", ""),
         "Path": entry.get("workdir") or "~",
-        "X-Kilix-Open": "tab" if entry.get("terminal") else "run",
-    }
-    shell.launch(spec)
+        "X-Kilix-Open": "tab",
+    })
 
 
 def app_context(shell, entry):

@@ -206,6 +206,39 @@ def test_new_hardware_notification():
         nostalgia.block_device_signature = original
 
 
+def test_legacy_era_names_keep_their_profile():
+    with H.desktop_dir():
+        first = H.make_desk()
+        first.shell.state["era_profile"] = "Windows 95 RTM"
+        first.shell.state["full_window_drag"] = False
+        first.shell.state["theme"] = "Windows 95"
+        first.shell._save_state()
+        loaded = H.make_desk()
+        assert loaded.shell.state["era_profile"] == "Redmond 95 RTM"
+        assert loaded.shell.state["full_window_drag"] is False
+        assert loaded.shell.state["theme"] == "Redmond 95"
+
+        loaded.shell.state["era_profile"] = "Windows 95 Plus!"
+        loaded.shell.state["full_window_drag"] = True
+        loaded.shell._save_state()
+        plus = H.make_desk()
+        assert plus.shell.state["era_profile"] == "Redmond 95 Plus!"
+        assert plus.shell.state["full_window_drag"] is True
+
+        plus.shell.state["era_profile"] = "Windows 95"
+        plus.shell.state["full_window_drag"] = False
+        plus.shell._save_state()
+        classic = H.make_desk()
+        assert classic.shell.state["era_profile"] == "Redmond 95 RTM"
+        assert classic.shell.state["full_window_drag"] is False
+
+        classic.shell.state["era_profile"] = "Not an era"
+        classic.shell._save_state()
+        unknown = H.make_desk()
+        assert unknown.shell.state["era_profile"] == "Redmond 95 Plus!"
+        assert unknown.shell.state["full_window_drag"] is False
+
+
 def test_nostalgia_icons_exist():
     for name in ("controlpanel", "theme", "network", "dialup", "printer",
                  "briefcase", "cdrom", "floppy", "hardware", "powertoys",
