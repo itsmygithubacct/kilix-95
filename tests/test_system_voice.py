@@ -4,7 +4,18 @@ import os
 from pathlib import Path
 from unittest import mock
 import harness as H
+import storage
 import system_voice as V
+
+
+def assert_silent_install(install):
+    install.assert_called_once()
+    command, = install.call_args.args
+    assert command == ['/fixture/kilix', 'wizard', 'install-default-voice']
+    streams = install.call_args.kwargs
+    assert streams['stdin'] is V.subprocess.DEVNULL
+    assert streams['stdout'] is streams['stderr']
+    assert streams['stdout'] not in (None, V.subprocess.DEVNULL)
 
 with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'1'}):
     desk=H.make_desk()
@@ -17,7 +28,7 @@ with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'1
         assert voice.state['offered'] and not voice.state['enabled']
         assert voice.state['greeting']=='hello'
         start.assert_not_called()
-        install.assert_called_once_with(['/fixture/kilix','wizard','install-default-voice'])
+        assert_silent_install(install)
         assert '--prepare-system-voice' not in install.call_args.args[0]
         assert '--enable-kristin' not in install.call_args.args[0]
     count=len(desk.wm.windows)
@@ -53,7 +64,7 @@ with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'0
     with mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), \
             mock.patch('system_voice.subprocess.call',return_value=0) as install:
         voice.startup()
-        install.assert_called_once_with(['/fixture/kilix','wizard','install-default-voice'])
+        assert_silent_install(install)
     assert H.find_window(desk,'SystemVoice') is None
     assert not voice.state['enabled']
     with mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), mock.patch('system_voice.subprocess.Popen') as spawn:
@@ -71,6 +82,42 @@ with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'0
         except OSError:pass
         else:raise AssertionError('save error swallowed')
         assert not voice.state['enabled']
+
+# The first-run installer must not inherit the desktop pane.
+with H.desktop_dir():
+    desk = H.make_desk()
+    voice = V.controller(desk)
+    program = Path(os.environ['KILIX95_STATE_HOME']) / 'voice-install-stub'
+    program.parent.mkdir(parents=True, exist_ok=True)
+    program.write_text('#!/bin/sh\necho DESKTOP-BLEED-MARKER\necho DESKTOP-BLEED-MARKER >&2\n')
+    program.chmod(0o700)
+    saved_out, saved_err = os.dup(1), os.dup(2)
+    read_fd, write_fd = os.pipe()
+    os.dup2(write_fd, 1)
+    os.dup2(write_fd, 2)
+    os.close(write_fd)
+    try:
+        with mock.patch.object(desk.shell, 'kilix_tts_target', return_value=[str(program)]):
+            assert voice.install_default_voice() is True
+    finally:
+        os.dup2(saved_out, 1)
+        os.dup2(saved_err, 2)
+        os.close(saved_out)
+        os.close(saved_err)
+    os.set_blocking(read_fd, False)
+    leaked = b''
+    while True:
+        try:
+            block = os.read(read_fd, 65536)
+        except BlockingIOError:
+            break
+        if not block:
+            break
+        leaked += block
+    os.close(read_fd)
+    assert b'DESKTOP-BLEED-MARKER' not in leaked
+    logged = Path(storage.state_dir('voice-install.log')).read_bytes()
+    assert logged.count(b'DESKTOP-BLEED-MARKER') == 2
 print('ok')
 
 # Shutdown requests use the existing worker, await its acknowledgement, and

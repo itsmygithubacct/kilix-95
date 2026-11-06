@@ -1482,6 +1482,9 @@ class Desk:
             startup(self)
         except Exception as error:
             wm_mod.msgbox(self, "Model setup", str(error), icon="error")
+        # Startup installs run before the first frame. Erase any transcript
+        # they still managed to leave on this pane.
+        term.write("\x1b[2J\x1b[H")
         self._first_run_password_nag()    # …and pop the change-password bubble
         self._start_document_recovery()
         # The helper owns the D-Bus loop; the desktop retains all widget actions.

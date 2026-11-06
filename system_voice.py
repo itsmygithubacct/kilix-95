@@ -59,14 +59,25 @@ class Controller:
         self.state = state
 
     def install_default_voice(self):
-        """Select kilix-female-02. A missing launcher does not enable the greeting."""
+        """Select kilix-female-02. A missing launcher does not enable the greeting.
+
+        The desktop draws into this process's terminal. Installers print
+        progress on the streams they inherit, so those streams stay off the
+        pane and in the private voice-install log.
+        """
         target = self.desk.shell.kilix_tts_target()
         if not target:
             return False
+        log = _install_log()
         try:
-            return subprocess.call(default_voice_command(target)) == 0
+            return subprocess.call(default_voice_command(target),
+                                   stdin=subprocess.DEVNULL,
+                                   stdout=log, stderr=log) == 0
         except OSError:
             return False
+        finally:
+            if log is not subprocess.DEVNULL:
+                log.close()
 
     def startup(self):
         self.install_default_voice()
@@ -218,6 +229,26 @@ class Controller:
             self.job = None
         if self.tick in self.desk.tick_hooks:
             self.desk.tick_hooks.remove(self.tick)
+
+
+def _install_log():
+    """Open the voice-install log, or discard output if it cannot be created.
+
+    A failed log must not fall back to the desktop terminal. ``O_NOFOLLOW``
+    refuses a symlink planted in place of the log file.
+    """
+    import storage
+    path = storage.state_dir('voice-install.log')
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    except OSError:
+        return subprocess.DEVNULL
+    try:
+        return os.fdopen(fd, 'wb')
+    except OSError:
+        os.close(fd)
+        return subprocess.DEVNULL
 
 
 def controller(desk):
