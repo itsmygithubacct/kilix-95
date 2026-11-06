@@ -201,25 +201,51 @@ class DeskTerm(kilix_term.Term):
 
 
 CRASH_LOG_LIMIT = 1024 * 1024
-# A tall row edit is most of the frame. Sending the whole placement is simpler
-# than shipping a band that large, and it re-arms the damage path.
+# Damage that still covers most of the frame is sent as one placement.
+# The cutoff is the share of pixels, so a thin change stays a rectangle.
 _BAND_FULL_RATIO = 0.65
+
+
+def _rect_pixels(rects):
+    total = 0
+    for rect in rects:
+        total += int(rect[2]) * int(rect[3]) * 3
+    return total
 
 
 def frame_transmit(prev, cur, width, height):
     """Choose the bytes Desk.blit sends for two RGB frames.
 
-    Returns ("unchanged", None), ("band", (y, rows)), or ("full", None).
-    A band taller than 65% of the frame is a full placement. Missing or
-    mismatched history is a full placement too.
+    Returns ("unchanged", None), ("rects", ((x, y, w, h), ...)),
+    ("band", (y, rows)), or ("full", None). Rectangles come from the
+    frame presenter. A change larger than 65% of the frame is a full
+    placement. Missing or mismatched history is a full placement too.
+    Hosts that only offer a row band still use that band.
     """
-    if (prev is None or len(prev) != len(cur)
-            or not hasattr(kilix_graphics, "diff_band")):
+    if prev is None or len(prev) != len(cur) or width < 1 or height < 1:
         return "full", None
-    band = kilix_graphics.diff_band(prev, cur, width, height)
+    full = width * height * 3
+    limit = int(full * _BAND_FULL_RATIO)
+    if (hasattr(kilix_graphics, "diff_rects")
+            and hasattr(kilix_graphics, "extract_rect")):
+        try:
+            rects = kilix_graphics.diff_rects(prev, cur, width, height)
+        except (TypeError, ValueError):
+            return "full", None
+        if not rects:
+            return "unchanged", None
+        if _rect_pixels(rects) > limit:
+            return "full", None
+        return "rects", rects
+    if not hasattr(kilix_graphics, "diff_band"):
+        return "full", None
+    try:
+        band = kilix_graphics.diff_band(prev, cur, width, height)
+    except (TypeError, ValueError):
+        return "full", None
     if band is None:
         return "unchanged", None
-    if band[1] > int(height * _BAND_FULL_RATIO):
+    if width * int(band[1]) * 3 > limit:
         return "full", None
     return "band", band
 
@@ -940,19 +966,17 @@ class Desk:
         rgb = (img if img is not None else self.fb).tobytes()
         in_tmux = bool(os.environ.get("TMUX"))
         # Damage path: when the screen already shows the desktop fb at the
-        # current size, diff against the previous fb frame and edit only the
-        # changed row band of the displayed image (a=f) instead of resending
-        # the whole framebuffer — a clock tick or one window's frame no longer
-        # costs a full w*h*3 retransmit. Splash/system-screen blits (img=),
+        # current size, ask the frame presenter for the changed rectangles
+        # and edit those regions of the displayed image (a=f). A clock tick
+        # is a few pixels, not a full row. Splash/system-screen blits (img=),
         # size changes, and force_full (the run loop's keepalive re-blits,
         # which exist to recover placements kitty dropped while settling — a
-        # band edit cannot recover a missing placement) fall through to a full
-        # placement, which re-arms the band path by recording what's on
-        # screen. The hasattr guard keeps this kilix-95 working against an
-        # older host kilix checkout whose kilix_sdk lacks the damage helpers.
+        # region edit cannot recover a missing placement) fall through to a
+        # full placement, which re-arms the damage path by recording what's
+        # on screen. Hosts without rectangle damage still send one row band.
         # _last_blit is stamped only when bytes are transmitted, so the
         # keepalive cadence tracks real retransmissions.
-        band = None
+        regions = None
         if (not force_full and img is None
                 and getattr(self, "_blit_base", None)
                 == ("fb", self.w, self.h)):
@@ -961,32 +985,42 @@ class Desk:
             if kind == "unchanged":
                 self._prev_rgb = rgb
                 return                     # frame unchanged: nothing to send
-            if kind == "band":
-                band = found
+            if kind == "rects":
+                regions = found
+            elif kind == "band":
+                y0, bh = found
+                regions = ((0, y0, self.w, bh),)
         if img is None:
             self._prev_rgb = rgb
         self._last_blit = time.time()
-        if band is not None:
-            y0, bh = band
-            data = rgb[y0 * self.w * 3:(y0 + bh) * self.w * 3]
-            if self.stream:
-                kilix_graphics.blit_frame_edit(self.term, data, self.w, bh,
-                                               0, y0, self.img_id,
-                                               in_tmux=in_tmux)
-                return
-            # unique per-blit names: a lagging kitty must ENOENT on a stale
-            # escape, never mmap a slot reused with a different band geometry
-            # (kitty deletes each file after reading; the dir is cleaned up).
-            self._band_n = getattr(self, "_band_n", 0) + 1
-            path = self._frame_path("band", self._band_n)
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            fd = os.open(path, flags, 0o600)
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
-            self.term.write(kilix_graphics.build_frame_edit_file(
-                path, self.w, bh, 0, y0, self.img_id))
+        if regions is not None:
+            for rect in regions:
+                x, y, rw, rh = (int(rect[0]), int(rect[1]),
+                                int(rect[2]), int(rect[3]))
+                if hasattr(kilix_graphics, "extract_rect"):
+                    data = kilix_graphics.extract_rect(
+                        rgb, self.w, self.h, (x, y, rw, rh))
+                else:
+                    data = rgb[y * self.w * 3:(y + rh) * self.w * 3]
+                    x, rw = 0, self.w
+                if self.stream:
+                    kilix_graphics.blit_frame_edit(
+                        self.term, data, rw, rh, x, y, self.img_id,
+                        in_tmux=in_tmux)
+                    continue
+                # unique per-edit names: a lagging kitty must ENOENT on a
+                # stale escape, never mmap a slot reused with different
+                # geometry (kitty deletes each file after reading).
+                self._band_n = getattr(self, "_band_n", 0) + 1
+                path = self._frame_path("band", self._band_n)
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                if hasattr(os, "O_NOFOLLOW"):
+                    flags |= os.O_NOFOLLOW
+                fd = os.open(path, flags, 0o600)
+                with os.fdopen(fd, "wb") as f:
+                    f.write(data)
+                self.term.write(kilix_graphics.build_frame_edit_file(
+                    path, rw, rh, x, y, self.img_id))
             return
         self._blit_base = ("fb" if img is None else "img", self.w, self.h)
         if self.stream:

@@ -251,6 +251,7 @@ def test_damage_updates_do_not_starve_full_placement_recovery():
             with patch.object(desk_main.time, 'time', return_value=now):
                 desk.blit()
                 assert '\x1b_Ga=f,' in term.writes[-1], term.writes[-1]
+                assert 's=1,v=1' in term.writes[-1], term.writes[-1]
                 desk._keepalive(now, started=90)
             placements = [write for write in term.writes if '\x1b_Ga=T,' in write]
             if step < 20:
