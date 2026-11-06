@@ -298,15 +298,23 @@ class _Swatch(W.Widget):
 
 
 class _SettingsLabel(W.Label):
-    """Keep long explanations clear of the scroll bar and dialog buttons."""
+    """Wrap a long explanation when the next row leaves room.
+
+    The right inset stays clear of the page scrollbar. A row with no room
+    below keeps a single ellipsized line, the same as a tight form.
+    """
     limit_width = None
 
-    def draw(self, d, img):
-        width = self.window.client_size()[0] - self.x - 26
+    def _text_budget(self):
+        width, room = super()._text_budget()
+        win = self.window
+        if win is None:
+            return width, room
+        cw, _ch = win.client_size()
+        width = min(width, max(8, cw - self.x - 26))
         if self.limit_width is not None:
-            width = min(width, self.limit_width)
-        d.text((self.x, self.y), T.ellipsize(self.font, self.text, max(0, width)),
-               font=self.font, fill=self.color)
+            width = min(width, max(8, self.limit_width))
+        return width, room
 
 
 class _SettingsTabs(W.TabBar):

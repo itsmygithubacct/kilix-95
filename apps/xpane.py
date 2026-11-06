@@ -64,13 +64,42 @@ class _XSurface(W.Widget):
         return True
 
 
+class _MoveGrip(W.Widget):
+    """Raised cap on the top edge of a hosted window.
+
+    Clicks in the app's own title bar are injected into the private X server,
+    so they cannot move this Kilix window. The cap is the handle that can.
+    """
+
+    def __init__(self, pane):
+        rect = pane.move_grip_rect() or (0, 0, XPane._MOVE_W, XPane._MOVE_H)
+        super().__init__(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1])
+        self.pane = pane
+        self.visible = pane.move_grip_rect() is not None
+
+    def draw(self, d, img):
+        if not self.visible:
+            return
+        x0, y0 = self.x, self.y
+        x1, y1 = x0 + self.w - 1, y0 + self.h - 1
+        T.raised(d, x0, y0, x1, y1)
+        mid = (x0 + x1) // 2
+        for dx in (-8, 0, 8):
+            gx = mid + dx
+            d.line([(gx, y0 + 3), (gx, y1 - 3)], fill=T.SHADOW)
+            d.line([(gx + 1, y0 + 3), (gx + 1, y1 - 3)], fill=T.LIGHT)
+
+
 class XPane(wm.Window):
     """An X11 app shown directly on the desktop with no kilix window chrome:
     the app runs on a private Xvfb whose root is chroma-keyed away, so its own
-    skin (title bar, buttons, dragging) is all the UI — Winamp-on-Redmond 95 style.
+    skin is the UI. A cap centered on the top edge moves the Kilix window,
+    because the app's title bar only drags inside the private display.
     Clicks on the keyed-out (transparent) gaps fall through to the desktop."""
     _seq2 = 0
     _GRIP = 8                              # resize-grip band (px) at the edges
+    _MOVE_W = 72
+    _MOVE_H = 10
 
     def __init__(self, desk, cmd, title, icon="exe", app_size=None,
                  fps=15, env=None, cwd=None, fill=False, cleanup=None):
@@ -92,6 +121,7 @@ class XPane(wm.Window):
         # fully transparent until the first real frame, so the magenta chroma
         # fill never flashes onto the desktop during startup
         self.compose_mask = Image.new("L", (aw, ah), 0)
+        self._reveal_move_grip()
         self.fsize = aw * ah * 3
         self.buf = bytearray()
         self.capture = None
@@ -118,8 +148,9 @@ class XPane(wm.Window):
             self.xapp.close()
             self._run_external_cleanup()
             raise
-        self.add(_XSurface(self, aw, ah))
-        self.set_focus(self.widgets[-1])
+        surface = self.add(_XSurface(self, aw, ah))
+        self.set_focus(surface)
+        self._move_grip = self.add(_MoveGrip(self))
         # bridge this pane's private CLIPBOARD to the shared hub. Best-effort:
         # a copy/paste failure must never stop the app window from opening.
         self.clip = None
@@ -158,8 +189,11 @@ class XPane(wm.Window):
         # is grabbable even over the app's own transparent (rounded) corners.
         if not self.hit(gx, gy):
             return False
+        lx, ly = gx - self.x, gy - self.y
+        if self._move_grip_hit(lx, ly):
+            return True
         if self.resizable and not self.maximized:
-            lx, ly, g = gx - self.x, gy - self.y, self._GRIP
+            g = self._GRIP
             if lx < g or ly < g or lx >= self.w - g or ly >= self.h - g:
                 return True
         if self.compose_mask is None:
@@ -185,6 +219,51 @@ class XPane(wm.Window):
             e += "e"
         return e
 
+    def move_grip_rect(self):
+        """Half-open box of the drag cap, or None while the window is maximized."""
+        if getattr(self, "maximized", False) or self.w < self._MOVE_W + 16:
+            return None
+        x = (self.w - self._MOVE_W) // 2
+        return (x, 0, x + self._MOVE_W, self._MOVE_H)
+
+    def _move_grip_hit(self, lx, ly):
+        rect = self.move_grip_rect()
+        if rect is None:
+            return False
+        x0, y0, x1, y1 = rect
+        return x0 <= lx < x1 and y0 <= ly < y1
+
+    def _reveal_move_grip(self):
+        """The compositor keys out chroma. Keep the drag cap opaque or it vanishes."""
+        rect = self.move_grip_rect()
+        mask = self.compose_mask
+        if rect is None or mask is None or mask.size != (self.w, self.h):
+            return
+        x0, y0, x1, y1 = rect
+        mask.paste(Image.new("L", (x1 - x0, y1 - y0), 255), (x0, y0))
+
+    def pointer_zone(self, lx, ly):
+        if self._move_grip_hit(lx, ly):
+            return "move"
+        return self._edge_at(lx, ly) or "arrow"
+
+    def tooltip_at(self, gx, gy):
+        if self._move_grip_hit(gx - self.x, gy - self.y):
+            return "Drag to move"
+        return None
+
+    def on_mouse(self, gev):
+        lev = gev.at(self.x, self.y)
+        if (gev.press and gev.btn == 1 and self._capture is None
+                and self._move_grip_hit(lev.x, lev.y)):
+            if gev.clicks == 2 and self.resizable:
+                self.desk.wm.toggle_maximize(self)
+                return True
+            if not self.maximized:
+                self.desk.wm.begin_drag(self, "move", gev.x, gev.y)
+            return True
+        return super().on_mouse(gev)
+
     def on_resize(self):
         # window resized: grow the surface widget to fill it (so clicks in the
         # enlarged area still land) — the frame is scaled at draw time — and keep
@@ -192,10 +271,26 @@ class XPane(wm.Window):
         for w in self.widgets:
             if isinstance(w, _XSurface):
                 w.w, w.h = self.w, self.h
-        if self.compose_mask is not None and \
-                self.compose_mask.size != (self.w, self.h):
-            self.compose_mask = self.compose_mask.resize(
-                (self.w, self.h), Image.NEAREST)
+        if self.frame_img is not None:
+            fr = self.frame_img
+            if fr.size != (self.w, self.h):
+                fr = fr.resize((self.w, self.h), Image.NEAREST)
+            diff = ImageChops.difference(
+                fr, Image.new("RGB", fr.size, CHROMA))
+            self.compose_mask = diff.convert("L").point(
+                lambda value: 0 if value == 0 else 255)
+        elif (self.compose_mask is not None
+              and self.compose_mask.size != (self.w, self.h)):
+            self.compose_mask = Image.new("L", (self.w, self.h), 0)
+        self._reveal_move_grip()
+        grip = getattr(self, "_move_grip", None)
+        if grip is not None:
+            rect = self.move_grip_rect()
+            grip.visible = rect is not None
+            if rect:
+                grip.x, grip.y = rect[0], rect[1]
+                grip.w = rect[2] - rect[0]
+                grip.h = rect[3] - rect[1]
         self.invalidate()
 
     def _paint_root_chroma(self):
@@ -308,6 +403,7 @@ class XPane(wm.Window):
         if mask.size != (self.w, self.h):
             mask = mask.resize((self.w, self.h), Image.NEAREST)
         self.compose_mask = mask
+        self._reveal_move_grip()
         self.invalidate()
 
     def _pump_damage(self):

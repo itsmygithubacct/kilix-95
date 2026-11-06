@@ -138,6 +138,26 @@ class Window:
                 x -= 2                # gap between close and max, like 95
         return out
 
+    def _title_grip_box(self):
+        """Ridges at the right of the title, or None when they would not fit.
+
+        The whole title bar is the drag handle. The ridges are only the cue
+        that this bar moves the window. A maximized window does not move.
+        """
+        if self.chromeless or self.maximized or self.w < 170:
+            return None
+        buttons = self._sysbuttons()
+        if not buttons:
+            return None
+        left = min(box[1] for box in buttons)
+        x1 = left - 4
+        x0 = x1 - 11
+        if x0 < T.BORDER + 28:
+            return None
+        y0 = T.BORDER + 3
+        y1 = T.BORDER + T.TITLE_H - 6
+        return x0, y0, x1, y1
+
     def render(self):
         if self.surface is None or self.surface.size != (self.w, self.h):
             self.surface = Image.new("RGB", (self.w, self.h), T.FACE)
@@ -161,9 +181,20 @@ class Window:
         tx1, ty1 = self.w - T.BORDER - 1, T.BORDER + T.TITLE_H - 3
         T.titlebar(d, tx0, ty0, tx1, ty1, active)
         icons.paint(img, self.icon, tx0 + 2, ty0, 16)
-        label = T.ellipsize(T.BOLD, self.title, self.w - 90)
+        grip = self._title_grip_box()
+        if grip:
+            label_w = max(4, grip[0] - (tx0 + 22) - 4)
+        else:
+            label_w = max(4, self.w - 90)
+        label = T.ellipsize(T.BOLD, self.title, label_w)
         d.text((tx0 + 22, ty0 + 1), label, font=T.BOLD,
                fill=T.TITLE_A_TX if active else T.TITLE_I_TX)
+        if grip:
+            gx0, gy0, _gx1, gy1 = grip
+            col = T.TITLE_A_TX if active else T.TITLE_I_TX
+            for i in range(3):
+                x = gx0 + 1 + i * 4
+                d.line([(x, gy0), (x, gy1)], fill=col)
         for kind, x0, y0, x1, y1 in self._sysbuttons():
             T.raised(d, x0, y0, x1, y1)
             cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
@@ -236,6 +267,31 @@ class Window:
         elif lx >= self.w - m:
             e += "e"
         return e
+
+    def pointer_zone(self, lx, ly):
+        """Cursor for a point in window coordinates. Mirrors on_mouse priority."""
+        if self.chromeless:
+            return "arrow"
+        for _kind, x0, y0, x1, y1 in self._sysbuttons():
+            if x0 <= lx <= x1 and y0 <= ly <= y1:
+                return "arrow"
+        in_title = (T.BORDER <= ly < T.BORDER + T.TITLE_H - 2
+                    and T.BORDER <= lx < self.w - T.BORDER)
+        if in_title:
+            if lx < T.BORDER + 20 or self.maximized:
+                return "arrow"
+            return "move"
+        edge = self._edge_at(lx, ly)
+        if edge:
+            return edge
+        cx = lx - T.BORDER
+        cy = ly - (T.BORDER + T.TITLE_H)
+        for wdg in reversed(self.widgets):
+            if wdg.visible and wdg.enabled and wdg.hit(cx, cy):
+                if isinstance(wdg, (W.TextField, W.TextArea)):
+                    return "text"
+                return "arrow"
+        return "arrow"
 
     def on_mouse(self, gev):
         """gev has global coords; window translates. Returns True if used."""
@@ -569,29 +625,7 @@ Window.on_resize = _on_resize
 # ── dialogs ──────────────────────────────────────────────────────────────────
 
 def _wrap_text(text, font, maxw):
-    out = []
-    for para in text.split("\n"):
-        line = ""
-        for word in para.split(" "):
-            while T.text_w(font, word) > maxw and len(word) > 1:
-                # a word wider than a line (an ID, a path) is split by
-                # characters instead of running off the dialog
-                cut = max(1, len(word) * maxw // max(1, T.text_w(font, word)))
-                while cut > 1 and T.text_w(font, word[:cut]) > maxw:
-                    cut -= 1
-                if line:
-                    out.append(line)
-                    line = ""
-                out.append(word[:cut])
-                word = word[cut:]
-            cand = (line + " " + word).strip()
-            if T.text_w(font, cand) <= maxw or not line:
-                line = cand
-            else:
-                out.append(line)
-                line = word
-        out.append(line)
-    return out
+    return T.wrap_text(text, font, maxw)
 
 
 def msgbox(desk, title, text, icon="info", buttons=("OK",), cb=None,

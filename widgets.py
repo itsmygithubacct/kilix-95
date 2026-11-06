@@ -84,9 +84,11 @@ class Widget:
 
 
 class Label(Widget):
+    LINE_H = 14
+
     def __init__(self, x, y, text, font=None, color=T.TEXT, bold=False):
         self.font = T.BOLD if bold else (font or T.FONT)
-        super().__init__(x, y, T.text_w(self.font, text), 14)
+        super().__init__(x, y, T.text_w(self.font, text), self.LINE_H)
         self.text = text
         self.color = color
 
@@ -95,8 +97,34 @@ class Label(Widget):
         self.w = T.text_w(self.font, text)
         self.invalidate()
 
+    def _text_budget(self):
+        """Width that stays inside the client, and the gap before the next widget."""
+        win = self.window
+        if win is None:
+            return max(8, self.w), max(self.LINE_H, self.h)
+        cw, ch = win.client_size()
+        width = max(8, cw - self.x - 8)
+        cap = getattr(self, "limit_width", None)
+        if isinstance(cap, int):
+            width = max(8, min(width, cap))
+        below = [wdg.y for wdg in win.widgets
+                 if wdg is not self and wdg.visible and wdg.y > self.y]
+        if below:
+            room = min(below) - self.y - 2
+        else:
+            room = ch - self.y - 2
+        return width, room
+
     def draw(self, d, img):
-        d.text((self.x, self.y), self.text, font=self.font, fill=self.color)
+        width, room = self._text_budget()
+        lines = T.wrap_text(self.text, self.font, width) or [""]
+        fit = max(1, room // self.LINE_H)
+        lines = T.clip_lines(lines, fit, self.font, width)
+        self.h = self.LINE_H * max(1, len(lines))
+        for i, line in enumerate(lines):
+            if line:
+                d.text((self.x, self.y + i * self.LINE_H), line,
+                       font=self.font, fill=self.color)
 
 
 class Button(Widget):
@@ -121,14 +149,17 @@ class Button(Widget):
         else:
             T.raised(d, x0, y0, x1, y1)
         off = 1 if pushed else 0
-        tw = T.text_w(T.FONT, self.text)
-        cx = x0 + (x1 - x0 + 1 - tw - (20 if self.icon else 0)) // 2
+        icon_w = 20 if self.icon else 0
+        avail = max(0, (x1 - x0 + 1) - 8 - icon_w)
+        shown = T.ellipsize(T.FONT, self.text, avail) if avail else ""
+        tw = T.text_w(T.FONT, shown)
+        cx = x0 + (x1 - x0 + 1 - tw - icon_w) // 2
         if self.icon:
             icons.paint(img, self.icon, cx + off,
                         y0 + (y1 - y0 + 1 - 16) // 2 + off, 16)
             cx += 20
         col = T.TEXT if self.enabled else T.DISABLED
-        d.text((cx + off, y0 + (y1 - y0 + 1 - 13) // 2 + off), self.text,
+        d.text((cx + off, y0 + (y1 - y0 + 1 - 13) // 2 + off), shown,
                font=T.FONT, fill=col)
         if self.window and self.window.focus is self:
             T.focus_rect(d, x0 + 3, y0 + 3, x1 - 3, y1 - 3)
@@ -177,7 +208,12 @@ class Checkbox(Widget):
             for i in range(4):
                 d.line([(bx + 6 + i, by + 6 - i), (bx + 6 + i, by + 8 - i)],
                        fill=T.TEXT)
-        d.text((self.x + 17, self.y + 1), self.text, font=T.FONT,
+        shown = self.text
+        if self.window is not None:
+            room = self.window.client_size()[0] - self.x - 21
+            if 8 <= room < T.text_w(T.FONT, self.text):
+                shown = T.ellipsize(T.FONT, self.text, room)
+        d.text((self.x + 17, self.y + 1), shown, font=T.FONT,
                fill=T.TEXT if self.enabled else T.DISABLED)
         # Redmond 95 draws the keyboard-focus marquee around a checkbox's label.
         if self.enabled and self.window and self.window.focus is self:
@@ -1045,19 +1081,12 @@ class IconGrid(Widget):
             ty += 13
 
     def _wrap(self, label):
-        maxw = T.CELL_W - 6
-        if T.text_w(T.FONT, label) <= maxw:
-            return [label]
-        # break at the last space that fits, else hard split
-        cut = len(label)
-        while cut and T.text_w(T.FONT, label[:cut]) > maxw:
-            cut -= 1
-        sp = label.rfind(" ", 0, cut + 1)
-        if sp > 0:
-            first, rest = label[:sp], label[sp + 1:]
-        else:
-            first, rest = label[:cut], label[cut:]
-        return [first, T.ellipsize(T.FONT, rest, maxw)]
+        maxw = max(8, T.CELL_W - 6)
+        # icon, a gap, then as many 13px lines as the cell still has room for
+        room = T.CELL_H - (2 + T.ICON + 3) - 2
+        fit = max(1, room // 13)
+        lines = T.wrap_text(label, T.FONT, maxw) or [""]
+        return T.clip_lines(lines, fit, T.FONT, maxw)
 
     def on_mouse(self, ev):
         if not self.desktop and self.sb.total > self.sb.page:
@@ -1244,8 +1273,12 @@ class TabBar(Widget):
                 d.line([(x0 + 1, bottom), (x1 - 1, bottom)], fill=T.FACE)
             # Centre the label in whatever width the tab ended up with, so a
             # compressed strip stays symmetric rather than left-heavy.
-            d.text((tx + (tw - T.text_w(T.FONT, label)) // 2,
-                    self.y + (4 if not sel else 3)), label,
+            # Widths stay text-sized; only a tab narrower than its label clips.
+            inner = max(0, tw - 8)
+            shown = label if T.text_w(T.FONT, label) <= inner else T.ellipsize(
+                T.FONT, label, inner)
+            d.text((tx + (tw - T.text_w(T.FONT, shown)) // 2,
+                    self.y + (4 if not sel else 3)), shown,
                    font=T.FONT, fill=T.TEXT)
             if sel and self.window and self.window.focus is self:
                 T.focus_rect(d, tx + 3, self.y + 3, tx + tw - 4,
@@ -1346,6 +1379,8 @@ class Menu:
                               for it in items)
         # keep on screen; a menu taller than the screen scrolls (F45)
         sw, sh = host.desk.size()
+        if self.w > sw - 4:
+            self.w = max(48, sw - 4)
         avail = sh - T.TASKBAR_H
         self.scrollable = self.full_h > avail
         self.h = min(self.full_h, avail)
@@ -1475,8 +1510,10 @@ class Menu:
                     d.point((cx + j, cy + 2 - j), fill=fg)
                     d.point((cx + j, cy + 1 - j), fill=fg)
             text_y = y0 + (self.item_h - 13) // 2
-            d.text((tx, text_y), it.label, font=T.FONT, fill=fg)
-            _underline_accelerator(d, tx, text_y, it.label, fg)
+            room = x1 - tx - (14 if it.submenu is not None else 4)
+            shown = T.ellipsize(T.FONT, it.label, max(8, room))
+            d.text((tx, text_y), shown, font=T.FONT, fill=fg)
+            _underline_accelerator(d, tx, text_y, shown, fg)
             if it.submenu is not None:
                 ax = x1 - 10
                 ay = y0 + self.item_h // 2

@@ -24,7 +24,7 @@ _BASE_METRICS = {
     "SCROLL_W": 16,             # scrollbar thickness
     "ICON": 32,                 # large icon size (desktop, file manager)
     "ICON_S": 16,               # small icon size (title bars, menus, lists)
-    "CELL_W": 75, "CELL_H": 66, # desktop / file-manager icon grid cell
+    "CELL_W": 75, "CELL_H": 80, # icon plus up to three wrapped label lines
     "START_W": 58,
     "WALL_IMAGE": "assets/wallpapers/plebian-os.png",
 }
@@ -186,6 +186,43 @@ def ellipsize(font, s, max_w):
     while s and text_w(font, s + "…") > max_w:
         s = s[:-1]
     return s + "…"
+
+
+def wrap_text(text, font, maxw):
+    """Word-wrap to maxw. A token wider than the line is split by character."""
+    out = []
+    for para in str(text).split("\n"):
+        line = ""
+        for word in para.split(" "):
+            while text_w(font, word) > maxw and len(word) > 1:
+                cut = max(1, len(word) * maxw // max(1, text_w(font, word)))
+                while cut > 1 and text_w(font, word[:cut]) > maxw:
+                    cut -= 1
+                if line:
+                    out.append(line)
+                    line = ""
+                out.append(word[:cut])
+                word = word[cut:]
+            cand = (line + " " + word).strip()
+            if text_w(font, cand) <= maxw or not line:
+                line = cand
+            else:
+                out.append(line)
+                line = word
+        out.append(line)
+    return out
+
+
+def clip_lines(lines, fit, font, max_w):
+    """Keep the lines that fit. The last one gains an ellipsis when text remains."""
+    fit = max(1, int(fit))
+    if len(lines) <= fit:
+        return lines
+    kept = list(lines[:fit])
+    rest = " ".join(line for line in lines[fit:] if line)
+    combined = (kept[-1] + " " + rest).strip() if kept[-1] else rest
+    kept[-1] = ellipsize(font, combined, max_w)
+    return kept
 
 
 def _blend(a, b, t):

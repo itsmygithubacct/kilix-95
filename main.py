@@ -253,6 +253,7 @@ class Desk:
         self.clip_host = None         # host-X CLIPBOARD bridge (set up in run())
         self.draw_cursor = draw_cursor
         self.mouse_pos = (self.w // 2, self.h // 2)
+        self.pointer = "arrow"
         self.menus = W.MenuHost(self)
         self.wm = wm_mod.WM(self)
         self.shell = shell_mod.Shell(self)
@@ -485,6 +486,30 @@ class Desk:
         self.dirty = False
         self.blit()
 
+    def _sync_pointer(self, ev):
+        """Remember which cursor the pixel under the pointer should show.
+
+        Updated even when the software cursor is off, so tests and a later
+        hover can read it. A drag keeps its shape after the pointer leaves
+        the handle that started it.
+        """
+        drag = self.wm.drag
+        if drag:
+            self.pointer = drag[1] or "arrow"
+            return
+        if self.menus.active or self.switcher is not None:
+            self.pointer = "arrow"
+            return
+        if self.taskbar.hit(ev.x, ev.y):
+            self.pointer = "arrow"
+            return
+        win = self.wm.window_at(ev.x, ev.y)
+        if win is None:
+            self.pointer = "arrow"
+            return
+        zone = getattr(win, "pointer_zone", None)
+        self.pointer = zone(ev.x - win.x, ev.y - win.y) if zone else "arrow"
+
     def _paint_cursor(self, d):
         x, y = self.mouse_pos
         if self.busy:
@@ -493,18 +518,84 @@ class Desk:
             d.line([(x + 10, y + 14), (x + 20, y + 14)], fill=T.TEXT, width=2)
             d.line([(x + 11, y + 3), (x + 19, y + 12)], fill=T.TEXT)
             d.line([(x + 19, y + 3), (x + 11, y + 12)], fill=T.TEXT)
-        pts = [(x, y), (x, y + 14), (x + 4, y + 10), (x + 7, y + 16),
-               (x + 9, y + 15), (x + 6, y + 9), (x + 11, y + 9)]
+        shape = self.wm.drag[1] if self.wm.drag else self.pointer
+        painter = {
+            "move": self._paint_move_cursor,
+            "text": self._paint_ibeam,
+            "n": self._paint_ns_cursor,
+            "s": self._paint_ns_cursor,
+            "e": self._paint_ew_cursor,
+            "w": self._paint_ew_cursor,
+            "ne": self._paint_nesw_cursor,
+            "sw": self._paint_nesw_cursor,
+            "nw": self._paint_nwse_cursor,
+            "se": self._paint_nwse_cursor,
+        }.get(shape, self._paint_arrow)
+        painter(d, x, y)
+
+    def _paint_arrow(self, d, x, y):
         scheme = self.shell.state.get("cursor_scheme", "Standard")
         if scheme == "Dinosaur":
             d.polygon([(x, y + 3), (x + 9, y), (x + 14, y + 4),
                        (x + 10, y + 8), (x + 5, y + 7), (x + 2, y + 14)],
                       fill=(0, 128, 0), outline=T.TEXT)
             d.point((x + 10, y + 3), fill=T.LIGHT)
-        else:
-            fill = T.TEXT if scheme == "Black" else T.LIGHT
-            outline = T.LIGHT if scheme == "Inverted" else T.TEXT
-            d.polygon(pts, fill=fill, outline=outline)
+            return
+        pts = [(x, y), (x, y + 14), (x + 4, y + 10), (x + 7, y + 16),
+               (x + 9, y + 15), (x + 6, y + 9), (x + 11, y + 9)]
+        fill = T.TEXT if scheme == "Black" else T.LIGHT
+        outline = T.LIGHT if scheme == "Inverted" else T.TEXT
+        d.polygon(pts, fill=fill, outline=outline)
+
+    def _cursor_line(self, d, a, b):
+        # A dark halo with a light core stays readable on the desk and on a window.
+        d.line([a, b], fill=T.TEXT, width=3)
+        d.line([a, b], fill=T.LIGHT, width=1)
+
+    def _paint_move_cursor(self, d, x, y):
+        self._cursor_line(d, (x, y - 8), (x, y + 8))
+        self._cursor_line(d, (x - 8, y), (x + 8, y))
+        for tip, left, right in (
+            ((x, y - 8), (x - 3, y - 4), (x + 3, y - 4)),
+            ((x, y + 8), (x - 3, y + 4), (x + 3, y + 4)),
+            ((x - 8, y), (x - 4, y - 3), (x - 4, y + 3)),
+            ((x + 8, y), (x + 4, y - 3), (x + 4, y + 3)),
+        ):
+            self._cursor_line(d, tip, left)
+            self._cursor_line(d, tip, right)
+
+    def _paint_ns_cursor(self, d, x, y):
+        self._cursor_line(d, (x, y - 8), (x, y + 8))
+        self._cursor_line(d, (x, y - 8), (x - 3, y - 4))
+        self._cursor_line(d, (x, y - 8), (x + 3, y - 4))
+        self._cursor_line(d, (x, y + 8), (x - 3, y + 4))
+        self._cursor_line(d, (x, y + 8), (x + 3, y + 4))
+
+    def _paint_ew_cursor(self, d, x, y):
+        self._cursor_line(d, (x - 8, y), (x + 8, y))
+        self._cursor_line(d, (x - 8, y), (x - 4, y - 3))
+        self._cursor_line(d, (x - 8, y), (x - 4, y + 3))
+        self._cursor_line(d, (x + 8, y), (x + 4, y - 3))
+        self._cursor_line(d, (x + 8, y), (x + 4, y + 3))
+
+    def _paint_nesw_cursor(self, d, x, y):
+        self._cursor_line(d, (x - 6, y + 6), (x + 6, y - 6))
+        self._cursor_line(d, (x + 6, y - 6), (x + 2, y - 6))
+        self._cursor_line(d, (x + 6, y - 6), (x + 6, y - 2))
+        self._cursor_line(d, (x - 6, y + 6), (x - 2, y + 6))
+        self._cursor_line(d, (x - 6, y + 6), (x - 6, y + 2))
+
+    def _paint_nwse_cursor(self, d, x, y):
+        self._cursor_line(d, (x - 6, y - 6), (x + 6, y + 6))
+        self._cursor_line(d, (x - 6, y - 6), (x - 2, y - 6))
+        self._cursor_line(d, (x - 6, y - 6), (x - 6, y - 2))
+        self._cursor_line(d, (x + 6, y + 6), (x + 2, y + 6))
+        self._cursor_line(d, (x + 6, y + 6), (x + 6, y + 2))
+
+    def _paint_ibeam(self, d, x, y):
+        self._cursor_line(d, (x, y - 7), (x, y + 7))
+        self._cursor_line(d, (x - 3, y - 7), (x + 3, y - 7))
+        self._cursor_line(d, (x - 3, y + 7), (x + 3, y + 7))
 
     def _draw_outline(self, d, rect):
         x, y, w, h = (int(value) for value in rect)
@@ -1075,6 +1166,7 @@ class Desk:
     def _dispatch_mouse(self, ev):
         if self.draw_cursor and (ev.move or ev.press):
             self.dirty = True
+        self._sync_pointer(ev)
         if self.menus.active:
             if self.menus.on_mouse(ev):
                 return
@@ -1128,6 +1220,7 @@ class Desk:
             self.wm.drag_motion(ev)
         elif not ev.press and ev.btn == self._owner_btn:
             self.wm.end_drag()
+        self._sync_pointer(ev)
 
     def dispatch_key(self, ev):
         self._last_input = time.time()
