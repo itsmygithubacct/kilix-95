@@ -108,7 +108,9 @@ with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_DICTATION_OFFER': '1',
                                                    'KILIX_SYSTEM_VOICE_OFFER': '1'}):
     desk = H.make_desk()
     voice = V.controller(desk)
-    voice.startup()
+    with mock.patch.object(desk.shell, 'kilix_tts_target', return_value=['/fixture/kilix', 'tts']), \
+            mock.patch('system_voice.subprocess.call', return_value=0):
+        voice.startup()
     offer = D.controller(desk)
     offer.startup()
     assert H.find_window(desk, 'SystemVoice') and H.find_window(desk, 'DictationOffer') is None

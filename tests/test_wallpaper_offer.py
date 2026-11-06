@@ -10,7 +10,9 @@ import paperclips
 
 for choice in (False, True):
     with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_MODEL_WIZARD_OFFER': '1'}), \
-            mock.patch.object(modelwizard, 'open_window') as models:
+            mock.patch.object(modelwizard, 'open_window') as models, \
+            mock.patch('shell.Shell.kilix_tts_target', return_value=['/fixture/kilix', 'tts']), \
+            mock.patch('system_voice.subprocess.call', return_value=0) as install:
         desk = H.make_desk(size=(640, 480))
         assert not desk.paperclips.enabled()
         assert desk.shell.state['wall_image'] == str(paperclips.REGULAR)
@@ -31,6 +33,10 @@ for choice in (False, True):
         assert later.shell.state['wall_image'] == str(paperclips.BASE if choice else paperclips.REGULAR)
         modelwizard.startup(later)
         assert H.find_window(later, 'WallpaperOffer') is None and models.call_count == 2
+        assert install.call_args.args[0] == ['/fixture/kilix', 'wizard', 'install-default-voice']
+        assert '--prepare-system-voice' not in install.call_args.args[0]
+        from system_voice import controller
+        assert controller(desk).state.get('enabled') is not True
 
 with H.desktop_dir():
     desk = H.make_desk()

@@ -9,7 +9,7 @@ class SystemVoice(wm.Window):
         super().__init__(desk, 'Enable system voice', 510, 295,
                          icon='speak', resizable=False)
         self.voice = controller(desk)
-        self.add(W.Label(16, 16, 'Let Piper Kristin greet you when Kilix 95 starts.'))
+        self.add(W.Label(16, 16, 'Let kilix-female-02 greet you when Kilix 95 starts.'))
         self.add(W.Label(16, 40, 'The voice downloads once and stays ready during your session.'))
         self.add(W.Label(16, 58, 'Also speaks system health, power and update messages.'))
         self.add(W.Label(16, 76, 'Startup message (leave blank for a silent startup):'))

@@ -344,6 +344,9 @@ def open_window(desk):
 def startup(desk):
     from system_voice import controller
     voice = controller(desk)
+    # The desktop's first run installs kilix-female-02 with no speech question.
+    # That does not turn the greeting on and does not download Piper Kristin.
+    voice.install_default_voice()
     if voice.state.get('enabled') is True:
         voice.start()
     value = os.environ.get('KILIX_MODEL_WIZARD_OFFER')
