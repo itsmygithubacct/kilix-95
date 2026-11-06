@@ -70,7 +70,7 @@ def icon_for(entry):
 
 def launch(shell, entry, mode="tab"):
     """Open a discovered app. mode "tab" (default) synthesizes a launcher spec
-    and runs it in a kilix tab; "window" streams it into a Win95 desktop window
+    and runs it in a kilix tab; "window" streams it into a Redmond 95 desktop window
     via XPane (the way the media player runs); "fullscreen" is the same, sized
     to the whole screen."""
     name = entry.get("name") or "app"

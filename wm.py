@@ -1,6 +1,6 @@
 """kilix desktop — window manager.
 
-Windows are PIL surfaces composited by the Desk; each has Win95 chrome
+Windows are PIL surfaces composited by the Desk; each has Redmond 95 chrome
 (4px 3D frame, navy title bar, minimize/maximize/close buttons, optional
 menu bar as a client widget) and a flat list of client widgets. The WM owns
 z-order, focus, move/resize drags and modality; dialogs are ordinary
@@ -35,7 +35,7 @@ class Window:
             self.w, self.h = max(w, 120), max(h, T.TITLE_H + 2 * T.BORDER + 10)
         sw, sh = desk.size()
         n = len(desk.wm.windows)
-        off = (n * 22) % 220          # cascade, wrapping like Win95
+        off = (n * 22) % 220          # cascade, wrapping like Redmond 95
         if x is None:
             x = min((sw - self.w) // 2 + off, sw - self.w)
         if y is None:
@@ -596,7 +596,7 @@ def _wrap_text(text, font, maxw):
 
 def msgbox(desk, title, text, icon="info", buttons=("OK",), cb=None,
            default=0, win_icon=None):
-    """Win95 message box. cb(label) fires with the chosen button."""
+    """Redmond 95 message box. cb(label) fires with the chosen button."""
     lines = _wrap_text(text, T.FONT, 260)
     tw = max([T.text_w(T.FONT, ln) for ln in lines] + [120])
     bw, bh, gap = 72, 23, 8

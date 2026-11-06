@@ -1,6 +1,6 @@
 """kilix desktop — Find: All Files.
 
-The classic Win95 search dialog: a name pattern (glob or substring), a
+The classic Redmond 95 search dialog: a name pattern (glob or substring), a
 "Look in" root, an optional "Containing text" grep, and a results list that
 grows as matches arrive. The tree is walked from a desk.tick_hook in bounded
 chunks so a huge folder never blocks the event loop; results and depth are

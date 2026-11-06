@@ -67,7 +67,7 @@ class _XSurface(W.Widget):
 class XPane(wm.Window):
     """An X11 app shown directly on the desktop with no kilix window chrome:
     the app runs on a private Xvfb whose root is chroma-keyed away, so its own
-    skin (title bar, buttons, dragging) is all the UI — Winamp-on-Win95 style.
+    skin (title bar, buttons, dragging) is all the UI — Winamp-on-Redmond 95 style.
     Clicks on the keyed-out (transparent) gaps fall through to the desktop."""
     _seq2 = 0
     _GRIP = 8                              # resize-grip band (px) at the edges

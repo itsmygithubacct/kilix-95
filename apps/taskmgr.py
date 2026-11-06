@@ -1,4 +1,4 @@
-"""kilix desktop — Task Manager (Win95 "Close Program" list).
+"""kilix desktop — Task Manager (Redmond 95 "Close Program" list).
 
 A live list of the running application windows: pick one and End Task
 (request_close), Switch To (activate + restore), or start a New Task via the

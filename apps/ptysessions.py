@@ -1,4 +1,4 @@
-"""kilix desktop — PTY Sessions (Win95-style manager for persistent panes).
+"""kilix desktop — PTY Sessions (Redmond 95-style manager for persistent panes).
 
 Lists the sessions kitty-pty-broker keeps alive behind Kilix panes, shows one
 in detail, observes it read-only, attaches a detached one, ends one with a

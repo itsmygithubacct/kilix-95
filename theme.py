@@ -1,7 +1,7 @@
 """kilix desktop theme: flavor identity, palette, metrics, fonts, bevels.
 
 Everything visual that is shared between modules lives here so the look can
-be tuned in one place. The default flavor is the classic Windows 95 look; an
+be tuned in one place. The default flavor is the classic Redmond 95 look; an
 XP flavor switches identity, colors, chrome accents and taskbar treatment at
 runtime. Text is rendered with PIL in binary (non-antialiased) mode for the
 crisp bitmap-font feel.
@@ -31,9 +31,9 @@ _BASE_METRICS = {
 
 _FLAVORS = {
     "95": {
-        "aliases": ("95", "win95", "windows95", "classic"),
+        "aliases": ("95", "redmond", "redmond95", "classic"),
         "PRODUCT_NAME": "kilix 95",
-        "STYLE_NAME": "Windows 95-style",
+        "STYLE_NAME": "Redmond 95-style",
         "RUNTIME_ID": "kilix95",
         "START_LABEL": "Start",
         "START_ICON": "flame",

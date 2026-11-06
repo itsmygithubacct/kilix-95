@@ -32,7 +32,7 @@ def _fade(shift):
 
 
 class Mystify(_Saver):
-    """Bouncing polylines leaving a fading trail (the Win95 'Mystify')."""
+    """Bouncing polylines leaving a fading trail (the Redmond 95 'Mystify')."""
     name = "mystify"
     COLORS = [(255, 0, 255), (0, 255, 255), (255, 255, 0), (64, 160, 255)]
 

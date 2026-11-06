@@ -2,7 +2,7 @@
 
 A modal window mirroring wm.msgbox/inputbox's modality + callback style:
 open_file/save_file(desk, title, cb, ...) call cb(path) with the chosen
-absolute path, or cb(None) on Cancel. Fixed-size, Win95 idiom.
+absolute path, or cb(None) on Cancel. Fixed-size, Redmond 95 idiom.
 """
 import fnmatch
 import os

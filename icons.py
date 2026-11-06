@@ -1,7 +1,7 @@
 """kilix desktop — the icon set, drawn in code.
 
 No Microsoft artwork is bundled (kilix is published); every icon is original
-pixel art in the Windows 95 16-color idiom. Icons are authored on a 16×16
+pixel art in the Redmond 95 16-color idiom. Icons are authored on a 16×16
 grid and rendered at an integer scale (16 px for menus/title bars, 32 px for
 the desktop and file manager) so they stay crisp and chunky at both sizes.
 

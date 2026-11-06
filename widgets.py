@@ -17,7 +17,7 @@ import theme as T
 
 def drawer(img):
     d = ImageDraw.Draw(img)
-    d.fontmode = "1"          # binary rendering: crisp Win95 text, no AA
+    d.fontmode = "1"          # binary rendering: crisp Redmond 95 text, no AA
     return d
 
 
@@ -179,7 +179,7 @@ class Checkbox(Widget):
                        fill=T.TEXT)
         d.text((self.x + 17, self.y + 1), self.text, font=T.FONT,
                fill=T.TEXT if self.enabled else T.DISABLED)
-        # Win95 draws the keyboard-focus marquee around a checkbox's label.
+        # Redmond 95 draws the keyboard-focus marquee around a checkbox's label.
         if self.enabled and self.window and self.window.focus is self:
             T.focus_rect(d, self.x + 15, self.y, self.x + self.w - 1,
                          self.y + self.h - 1)
@@ -900,7 +900,7 @@ class ListBox(Widget):
 class IconGrid(Widget):
     """Large-icon view: desktop surface and the file manager both use it.
     Items: dicts {label, icon, data, shortcut}. Column-major on the desktop
-    (fill top-to-bottom like Win95), row-major in windows."""
+    (fill top-to-bottom like Redmond 95), row-major in windows."""
     focusable = True
 
     def __init__(self, x, y, w, h, on_activate=None, on_context=None,
@@ -1613,7 +1613,7 @@ class MenuHost:
                 break
         if over is None:
             if ev.press:
-                self.close_all()      # swallow the closing click, like Win95
+                self.close_all()      # swallow the closing click, like Redmond 95
                 return True
             if ev.move and self.bar:
                 self.bar.hover_switch(ev)

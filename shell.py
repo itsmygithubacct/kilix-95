@@ -30,6 +30,7 @@ import durable_state
 import nostalgia
 import recycle
 import theme as T
+import themes
 import vbox
 import widgets as W
 import wm
@@ -113,9 +114,19 @@ class Shell:
                       "show_home": True, "show_settings": True,
                       "show_terminals": True,
                       "full_experience": False,
-                      "era_profile": "Windows 95 Plus!"}
+                      "era_profile": themes.DEFAULT_ERA}
         loaded = self.state_store.load_dict()
         self.state.update(loaded)
+        renamed = False
+        if (self.state.get("theme") is not None
+                and self.state.get("theme") not in themes.THEMES):
+            self.state["theme"] = themes.DEFAULT_THEME
+            renamed = True
+        if self.state.get("era_profile") not in themes.ERAS:
+            self.state["era_profile"] = themes.DEFAULT_ERA
+            renamed = True
+        if renamed:
+            self._save_state()
         if "wall_custom" not in loaded and loaded.get("wall_image"):
             self.state["wall_custom"] = True
         self._load_flavor()

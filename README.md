@@ -6,7 +6,7 @@ Model Setup removes submitted administrator passwords from terminal output befor
 
 This source is a release candidate; installation-media and upgrade acceptance are pending.
 
-A Windows 95-style desktop rendered as **pixels** inside a Kilix pane, with an
+A Redmond 95-style desktop rendered as **pixels** inside a Kilix pane, with an
 optional Windows XP-style flavor.
 
 Kilix 95 is the release-default desktop provider in the four-repository
@@ -412,7 +412,7 @@ screen saver changes, or periodic keepalive.
 | file | role |
 |---|---|
 | `main.py` | entry point, `Desk`, raw-mode lifecycle, input dispatch, render loop, blitting, screenshots |
-| `theme.py` | Win95/XP identity, palettes, metrics, fonts, bevel primitives |
+| `theme.py` | Redmond 95/XP identity, palettes, metrics, fonts, bevel primitives |
 | `icons.py` | original pixel icons drawn on a 16x16 grid |
 | `widgets.py` | retained widget toolkit: buttons, fields, text areas, lists, grids, menus, tabs, scrollbars |
 | `wm.py` | window chrome, z-order, focus, modality, move/resize, dialogs |
@@ -458,7 +458,7 @@ Top-level sections:
 The menu is data-driven through `widgets.MenuItem`, so submenus can be nested
 without new widget code.
 
-## Windows 95 Nostalgia Features
+## Redmond 95 Nostalgia Features
 
 Kilix 95 starts with a lean desktop. Select **Activate full experience** in
 kilix Settings -> Behavior to expose the optional nostalgia layer. The choice

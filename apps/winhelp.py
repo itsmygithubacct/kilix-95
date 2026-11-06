@@ -114,7 +114,7 @@ def build_book():
                   "PowerToys in one classic icon view."),
             ("b", "Display Properties changes wallpaper, patterns, appearance, "
                   "pointer scheme, screen saver, and compatibility era."),
-            ("b", "The Windows 95, Kilix Space, Terminal Green, Dangerous "
+            ("b", "The Redmond 95, Kilix Space, Terminal Green, Dangerous "
                   "Creatures, Inside Your Computer, Plebian, and Kilix XP "
                   "themes use original generated art and sounds."),
             ("b", "Screen savers include Mystify, Starfield, Matrix, Pipes, "

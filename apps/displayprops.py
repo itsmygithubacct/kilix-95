@@ -1,4 +1,4 @@
-"""Windows 95-style Display Properties, themes, and screen-saver settings."""
+"""Redmond 95-style Display Properties, themes, and screen-saver settings."""
 
 import hashlib
 import os
@@ -18,7 +18,7 @@ import wm
 
 TIMEOUTS = [("1 minute", 60), ("3 minutes", 180), ("5 minutes", 300),
             ("10 minutes", 600), ("15 minutes", 900), ("Never", 0)]
-ERAS = ["Windows 95 RTM", "Windows 95 Plus!", "Late Win9x", "Kilix XP"]
+ERAS = themes.ERAS
 
 
 def _password_record(password):
@@ -244,7 +244,7 @@ class DisplayProperties(wm.Window):
                              "Resize the Kilix pane to change the desktop area.",
                              font=T.SMALL, color=T.SHADOW))
         self._add(p, W.GroupBox(18, 158, cw - 36, 132, "Compatibility"))
-        era = self.state.get("era_profile", "Windows 95 Plus!")
+        era = self.state.get("era_profile", themes.DEFAULT_ERA)
         self._add(p, W.Label(38, 190, "Era profile:"))
         self.era = self._add(p, W.Dropdown(
             150, 184, 220, ERAS, ERAS.index(era) if era in ERAS else 1,
@@ -257,17 +257,17 @@ class DisplayProperties(wm.Window):
             checked=bool(self.state.get("show_quick_launch", True))))
 
     def _era_changed(self, era):
-        """Seed the interaction defaults associated with each Win95 era."""
-        classic = era in ("Windows 95 RTM", "Windows 95 Plus!")
+        """Seed the interaction defaults associated with each Redmond 95 era."""
+        classic = era in ("Redmond 95 RTM", themes.DEFAULT_ERA)
         self.quick_launch.checked = not classic
-        self.full_drag.checked = era != "Windows 95 RTM"
+        self.full_drag.checked = era != "Redmond 95 RTM"
         self.invalidate()
 
     def _build_themes(self, cw):
         p = 4
         self._add(p, W.GroupBox(18, 44, cw - 36, 104, "Desktop theme"))
         names = list(themes.THEMES)
-        active = self.state.get("theme", "Windows 95")
+        active = self.state.get("theme", themes.DEFAULT_THEME)
         self.theme_dd = self._add(p, W.Dropdown(
             38, 76, 280, names, names.index(active) if active in names else 0,
             cb=lambda _v: self._theme_info()))

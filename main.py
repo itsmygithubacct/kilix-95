@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""kilix desktop — a Windows 95-style desktop environment in a kilix pane.
+"""kilix desktop — a Redmond 95-style desktop environment in a kilix pane.
 
 The whole desktop is rendered as pixels (PIL framebuffer, blitted through
 the kitty graphics protocol via private Kilix 95 session files

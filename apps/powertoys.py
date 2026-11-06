@@ -1,4 +1,4 @@
-"""Useful Windows 95 PowerToys-inspired shell helpers."""
+"""Useful Redmond 95 PowerToys-inspired shell helpers."""
 
 import os
 

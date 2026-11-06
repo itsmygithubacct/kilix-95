@@ -1,6 +1,6 @@
 """An opened submenu survives the pointer leaving the row that opened it.
 
-Win95 keeps a cascaded submenu on screen once it is open. This one used to
+Redmond 95 keeps a cascaded submenu on screen once it is open. This one used to
 close the moment the pointer moved to any other item in the parent — including
 a plain entry on the way down to the submenu — so reaching a submenu entry
 meant tracing the parent row exactly and then crossing into the child without

@@ -1,4 +1,4 @@
-"""Safe Windows 95-style disk map driven by real disk usage statistics."""
+"""Safe Redmond 95-style disk map driven by real disk usage statistics."""
 
 import random
 import shutil

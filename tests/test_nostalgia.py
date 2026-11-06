@@ -1,4 +1,4 @@
-"""Windows 95 nostalgia namespaces, themes, shell polish, and safe services."""
+"""Redmond 95 nostalgia namespaces, themes, shell polish, and safe services."""
 
 import os
 import tempfile
@@ -60,7 +60,7 @@ def test_storage_and_theme_pack():
     spec = themes.apply(d.shell, "Dangerous Creatures")
     assert spec["cursor"] == "Dinosaur"
     assert d.shell.state["saver_name"] == "Pipes"
-    assert d.shell.state["era_profile"] == "Windows 95 Plus!"
+    assert d.shell.state["era_profile"] == "Redmond 95 Plus!"
     assert os.path.isfile(d.shell.state["wall_image"])
     assert d.shell.state["wall_image"].startswith(storage.data_dir())
 

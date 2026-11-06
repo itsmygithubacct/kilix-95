@@ -9,7 +9,7 @@ import storage
 
 
 THEMES = {
-    "Windows 95": {
+    "Redmond 95": {
         "flavor": "95", "color": (0, 128, 128), "pattern": "None",
         "sound": "kilix 95", "cursor": "Standard", "saver": "Mystify",
     },
@@ -39,6 +39,10 @@ THEMES = {
         "sound": "kilix XP", "cursor": "Standard", "saver": "Starfield",
     },
 }
+
+ERAS = ["Redmond 95 RTM", "Redmond 95 Plus!", "Late Win9x", "Kilix XP"]
+DEFAULT_THEME = "Redmond 95"
+DEFAULT_ERA = "Redmond 95 Plus!"
 
 PATTERNS = ["None", "Bricks", "Circuit", "Plaid", "Scales", "Stars"]
 CURSORS = ["Standard", "Black", "Inverted", "Dinosaur"]
@@ -109,10 +113,10 @@ def apply(shell, name):
     state["saver_name"] = spec["saver"]
     state["sound_scheme"] = spec["sound"]
     state["era_profile"] = ("Kilix XP" if name == "Kilix XP" else
-                            "Windows 95 RTM" if name == "Windows 95" else
-                            "Windows 95 Plus!")
+                            "Redmond 95 RTM" if name == DEFAULT_THEME else
+                            DEFAULT_ERA)
     state["show_quick_launch"] = name == "Kilix XP"
-    state["full_window_drag"] = name != "Windows 95"
+    state["full_window_drag"] = name != DEFAULT_THEME
     sounds.load_scheme(spec["sound"])
     shell._wall = None
     shell._save_state()
