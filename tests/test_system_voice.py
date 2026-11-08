@@ -9,14 +9,20 @@ import system_voice as V
 with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'1'}):
     desk=H.make_desk()
     voice=V.controller(desk)
-    with mock.patch.object(voice,'start') as start:
+    with mock.patch.object(voice,'start') as start, \
+            mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), \
+            mock.patch('system_voice.subprocess.call',return_value=0) as install:
         voice.startup()
         assert H.find_window(desk,'SystemVoice')
         assert voice.state['offered'] and not voice.state['enabled']
         assert voice.state['greeting']=='hello'
         start.assert_not_called()
+        install.assert_called_once_with(['/fixture/kilix','wizard','install-default-voice'])
+        assert '--prepare-system-voice' not in install.call_args.args[0]
+        assert '--enable-kristin' not in install.call_args.args[0]
     count=len(desk.wm.windows)
-    voice.startup()
+    with mock.patch('system_voice.subprocess.call',return_value=0):
+        voice.startup()
     assert len(desk.wm.windows)==count
     with mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), mock.patch.object(desk.shell,'_tab',return_value=True):
         voice.enable('Hello from home')
@@ -33,7 +39,7 @@ with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'1
     # A later desktop launch reads the same durable preference and greets.
     later=V.Controller(desk)
     assert later.state['enabled'] and later.state['greeting']=='Hello from home'
-    with mock.patch.object(later,'start') as start:
+    with mock.patch.object(later,'start') as start, mock.patch('system_voice.subprocess.call',return_value=0):
         later.startup()
         start.assert_called_once()
     with mock.patch.object(voice,'stop') as stop:
@@ -44,8 +50,12 @@ with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'1
 
 with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'0'}):
     desk=H.make_desk();voice=V.controller(desk)
-    voice.startup()
+    with mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), \
+            mock.patch('system_voice.subprocess.call',return_value=0) as install:
+        voice.startup()
+        install.assert_called_once_with(['/fixture/kilix','wizard','install-default-voice'])
     assert H.find_window(desk,'SystemVoice') is None
+    assert not voice.state['enabled']
     with mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), mock.patch('system_voice.subprocess.Popen') as spawn:
         process=spawn.return_value;process.poll.return_value=None
         voice.state['greeting']='hello; $(false)'

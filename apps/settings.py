@@ -63,6 +63,8 @@ BEHAVIOR = [
 TOP_BAR = [
     (shared_settings.SYSTEM_LOAD_MODE_KEY, "System CPU and RAM", "choice",
      list(shared_settings.SYSTEM_LOAD_MODE_CHOICES)),
+    (shared_settings.SYSTEM_GPU_MODE_KEY, "System GPU", "choice",
+     list(shared_settings.SYSTEM_GPU_MODE_CHOICES)),
     ("KILIX_CHROME_TEMPERATURE", "Thermal status", "bool", "0"),
     (shared_settings.TEMPERATURE_UNIT_KEY, "Temperature units", "choice",
      list(shared_settings.TEMPERATURE_UNIT_CHOICES)),
@@ -90,6 +92,8 @@ PANE_BUTTONS = [
         "choice",
         list(shared_settings.PANE_MEMORY_MODE_CHOICES),
     ),
+    (shared_settings.PANE_GPU_MODE_KEY, "Pane GPU load", "choice",
+     list(shared_settings.PANE_GPU_MODE_CHOICES)),
     ("KILIX_CHROME_BUTTON_LOG", "Open pane session log", "bool", "1"),
     ("KILIX_CHROME_BUTTON_SYNCHRONIZE_INPUT", "Synchronize keyboard input", "bool", "1"),
     ("KILIX_CHROME_BUTTON_FONT_INCREASE", "Increase text size", "bool", "1"),

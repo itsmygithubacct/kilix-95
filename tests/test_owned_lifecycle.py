@@ -206,6 +206,7 @@ window.desk = SimpleNamespace(tick_hooks=[window.tick], remove_fd=Mock())
 window.process = Mock()
 window.finished = True
 window.master = 9876
+window.password_output = Mock()
 with patch.object(workflows_offer, 'stop', side_effect=RuntimeError('stop failed')):
     try:
         window.cleanup()
@@ -214,4 +215,5 @@ with patch.object(workflows_offer, 'stop', side_effect=RuntimeError('stop failed
 assert window.master is None and not window.desk.tick_hooks
 window.desk.remove_fd.assert_called_once_with(9876)
 Terminal.cleanup.__globals__['os'].close.assert_called_once_with(9876)
+window.password_output.clear.assert_called_once_with()
 print('owned lifecycle: OK (mock workers only)')

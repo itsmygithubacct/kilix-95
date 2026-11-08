@@ -41,7 +41,9 @@ def test_desktop_mux_terminal_launcher():
     assert seen["argv"][1:] == ["serve", "main"]
 
 
-def test_remote_launch_uses_private_credential():
+# This argv-only fixture owns no live frontend; transport is already stubbed.
+@patch("shell.frontend_context.refresh", return_value=None)
+def test_remote_launch_uses_private_credential(verified_frontend):
     d = H.make_desk()
     with patch.dict(os.environ, {"KILIX_RC_PASSWORD_FILE": "/tmp/rc-pass"}):
         assert d.shell._kitten_remote("kitten", "launch") == [

@@ -13,6 +13,54 @@ import wm
 from owned_job import OwnedJob
 
 
+class PasswordOutputFilter:
+    """Remove submitted passwords before bytes reach any transcript sink.
+
+    PTY echo checks cannot make checking terminal mode and writing input
+    atomic. A helper can also print input itself. Retain possible prefixes
+    across reads so even a split echo never reaches the UI or diagnostic log.
+    """
+    def __init__(self):
+        self.secrets = set()
+        self.pending = b''
+
+    def protect(self, value):
+        if value:
+            self.secrets.add(value)
+
+    def feed(self, data, *, final=False):
+        data = self.pending + data
+        self.pending = b''
+        if not self.secrets:
+            return data
+        result = bytearray()
+        position = 0
+        while position < len(data):
+            remaining = len(data) - position
+            matches = [secret for secret in self.secrets
+                       if data.startswith(secret, position)]
+            partial = any(len(secret) > remaining and secret.startswith(data[position:])
+                          for secret in self.secrets)
+            if partial:
+                if final:
+                    # Do not flush a possible password fragment at EOF.
+                    result.extend(b'[password removed]')
+                else:
+                    self.pending = data[position:]
+                break
+            if matches:
+                result.extend(b'[password removed]')
+                position += max(map(len, matches))
+            else:
+                result.append(data[position])
+                position += 1
+        return bytes(result)
+
+    def clear(self):
+        self.secrets.clear()
+        self.pending = b''
+
+
 class Transcript(W.TextArea):
     def on_key(self, ev):
         if ev.key in ('Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown') \
@@ -28,6 +76,8 @@ class LicenceTerminal(wm.Window):
         self.min_w, self.min_h = 480, 300
         self.output = ''
         self.decoder = codecs.getincrementaldecoder('utf-8')('replace')
+        self.password_output = PasswordOutputFilter()
+        self.prompt_tail = b''
         self.master, slave = pty.openpty()
         self.process = None
         self.finished = False
@@ -90,6 +140,17 @@ class LicenceTerminal(wm.Window):
             data = b''  # PTY EIO after the worker exits.
         if not data:
             self.desk.remove_fd(self.master)
+            self.record_output(self.password_output.feed(b'', final=True))
+            return
+        # Redaction may replace a short password that also occurs in [y/N].
+        # Recognize control prompts before redaction, but never render or log
+        # this bounded raw tail. Clear it with the secret filter on cleanup.
+        self.prompt_tail = (self.prompt_tail + data)[-256:]
+        self.prompt = bool(re.search(rb'\[(?:y/N|Y/n)\]\s*$', self.prompt_tail))
+        self.record_output(self.password_output.feed(data))
+
+    def record_output(self, data):
+        if not data:
             return
         self.output = (self.output + self.decoder.decode(data))[-4 * 1024 * 1024:]
         if self.log is not None:
@@ -114,7 +175,6 @@ class LicenceTerminal(wm.Window):
         clean = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', clean.replace('\r\n', '\n').replace('\r', '\n'))
         self.transcript.set_text(clean)
         self.transcript.sb.pos = max(0, len(self.transcript.lines) - self.transcript._rows())
-        self.prompt = bool(re.search(r'\[(?:y/N|Y/n)\]\s*$', clean))
         self.update_input()
         self.invalidate()
 
@@ -157,7 +217,10 @@ class LicenceTerminal(wm.Window):
             self.password.set('')
             self.update_input()
             return
-        data = self.password.text.encode('utf-8') + b'\n'
+        secret = self.password.text.encode('utf-8')
+        # Register before writing: the next read may already contain an echo.
+        self.password_output.protect(secret)
+        data = secret + b'\n'
         self.password.set('')
         self.password_answered_at = len(self.output)
         self.password.enabled = self.password_button.enabled = False
@@ -214,8 +277,12 @@ class LicenceTerminal(wm.Window):
                         os.close(descriptor)
             finally:
                 log, self.log = getattr(self, 'log', None), None
-                if log is not None:
-                    log.close()
+                try:
+                    if log is not None:
+                        log.close()
+                finally:
+                    self.password_output.clear()
+                    self.prompt_tail = b''
 
 
 def open_window(desk, command, *, log_path=None):

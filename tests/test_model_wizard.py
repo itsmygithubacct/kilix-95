@@ -143,7 +143,7 @@ with H.desktop_dir(), patch.object(backend, 'catalog', return_value=disclosed), 
         assert isinstance(viewer, W.TextArea) and viewer.read_only
         full = ' '.join(viewer.text().split())
         assert expected in full and row['id'] in full and '**' not in full
-        assert 'do not record your licence agreement' in full
+        assert 'Standard licences are handled automatically' in full
         assert all(T.text_w(viewer.font, line) <= viewer.text_viewport()[2]
                    for line in viewer.lines)
         original = viewer.text()

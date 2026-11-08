@@ -67,8 +67,21 @@ class ModelWizard(wm.Window):
                 f'Installed disk: {backend.size_text(row["installed_bytes"])}\n'
                 f'Temporary disk: {backend.size_text(row["temporary_bytes"])}\n'
                 f'{backend.memory_text(row)}\n\n'
-                'Catalog notes do not record your licence agreement. '
-                'You will review licences separately before installation.')
+                'Standard licences are handled automatically. '
+                'Models with additional terms ask for agreement before installation.')
+        import content_models as cm
+        try:
+            from kilix_sdk._content_runtime import apps_root
+            api = cm._api()
+            spec = cm._verified_catalog(api).require_asset(row['id'])
+            documents = Path(api.Installer(apps_root()).asset_destination(spec)) / 'notices'
+        except (KeyError, ValueError):
+            documents = None
+        if documents is not None:
+            text += '\n\nInstalled licence documents: ' + str(documents)
+            button = dialog.add(W.Button(18, 370, 220, 26, 'Open licence documents',
+                cb=lambda: self.desk.shell.open_path(str(documents))))
+            button.enabled = documents.is_dir()
         viewer = dialog.add(_ReadOnlyTextArea(18, 18, 602, 328))
         viewer.set_text('\n'.join(wm._wrap_text(text, viewer.font, viewer.text_viewport()[2])))
         dialog.add(W.Button(490, 370, 125, 26, 'Close', cb=dialog.close))
@@ -163,9 +176,9 @@ class ModelWizard(wm.Window):
         plans = backend.pending()
         count = sum(len(plan['models']) for plan in plans.values())
         self.add(W.Label(18, 20, 'Model choices saved'))
-        self.text(f'{count} selected models await licence review and installation. '
-                  'Licences are grouped at the end, with one Yes/No question naming all '
-                  'affected models. Declining a licence skips those models.', 55, limit=5)
+        self.text(f'{count} selected models await installation. '
+                  'Standard licences are handled automatically. Additional terms '
+                  'ask for agreement; declining skips the affected models.', 55, limit=5)
         self.text('The agreement terminal opens as a box inside this desktop. '
                   'Closing it leaves unfinished setup available for retry.', 155, limit=3)
         self.text(self.error, 215, limit=3)
@@ -331,6 +344,9 @@ def open_window(desk):
 def startup(desk):
     from system_voice import controller
     voice = controller(desk)
+    # The desktop's first run installs kilix-female-02 with no speech question.
+    # That does not turn the greeting on and does not download Piper Kristin.
+    voice.install_default_voice()
     if voice.state.get('enabled') is True:
         voice.start()
     value = os.environ.get('KILIX_MODEL_WIZARD_OFFER')

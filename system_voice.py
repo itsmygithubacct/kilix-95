@@ -19,6 +19,18 @@ def offer_enabled():
     return override == '1' if override is not None else os.path.isfile('/etc/plebian-os/build-info.env')
 
 
+# First run installs this voice with no question. It does not turn the
+# greeting on, and it does not download Piper Kristin.
+DEFAULT_VOICE_ARGS = ('--install=kilix-female-02', '--set', 'engine=piper', '--set', 'voice=kilix-female-02')
+
+
+def default_voice_command(target):
+    """Install kilix-female-02. The Kilix launcher uses the wizard's no-op check."""
+    if os.path.basename(target[0]) == 'kilix':
+        return [target[0], 'wizard', 'install-default-voice']
+    return [*target, *DEFAULT_VOICE_ARGS]
+
+
 class Controller:
     def __init__(self, desk):
         import durable_state
@@ -46,7 +58,18 @@ class Controller:
         self.store.save_dict(state)
         self.state = state
 
+    def install_default_voice(self):
+        """Select kilix-female-02. A missing launcher does not enable the greeting."""
+        target = self.desk.shell.kilix_tts_target()
+        if not target:
+            return False
+        try:
+            return subprocess.call(default_voice_command(target)) == 0
+        except OSError:
+            return False
+
     def startup(self):
+        self.install_default_voice()
         if self.state['enabled'] is True:
             self.start()
         elif offer_enabled() and not self.state['offered']:
@@ -114,7 +137,7 @@ class Controller:
             self.status = f'Could not start system voice: {error}'
             self.open()
             return
-        self.status = 'Loading Piper Kristin…'
+        self.status = 'Loading kilix-female-02…'
 
     def tick(self, _now):
         if self.job:
@@ -147,6 +170,8 @@ class Controller:
                 self.stop()
                 self.status = 'System voice stopped. ' + (text.strip().splitlines()[-1] if text.strip() else f'Exit {code}.')
                 self.open()
+            elif 'System voice ready: kilix-female-02' in text:
+                self.status = 'kilix-female-02 is ready for this session.'
             elif 'System voice ready: Piper Kristin' in text:
                 self.status = 'Piper Kristin is ready for this session.'
 
@@ -201,9 +226,15 @@ def controller(desk):
     return desk.system_voice
 
 
-def prepare(result, target, option="--prepare-system-voice"):
+def prepare(result, target, option=None):
+    if option is None:
+        command = default_voice_command(target)
+    else:
+        if isinstance(option, str):
+            option = (option,)
+        command = [*target, *option]
     try:
-        code = subprocess.call([*target, option])
+        code = subprocess.call(command)
     except OSError as error:
         print(error, file=sys.stderr)
         code = 1
@@ -222,4 +253,5 @@ def prepare(result, target, option="--prepare-system-voice"):
 if __name__ == '__main__':
     if len(sys.argv) < 4 or sys.argv[1] not in ('--prepare', '--prepare-kristin'):
         raise SystemExit('usage: system_voice.py --prepare RESULT LAUNCHER [ARG ...]')
-    raise SystemExit(prepare(sys.argv[2], sys.argv[3:], '--enable-kristin' if sys.argv[1] == '--prepare-kristin' else '--prepare-system-voice'))
+    option = ('--enable-kristin',) if sys.argv[1] == '--prepare-kristin' else None
+    raise SystemExit(prepare(sys.argv[2], sys.argv[3:], option))
