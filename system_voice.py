@@ -65,7 +65,9 @@ class Controller:
 
         The desktop draws into this process's terminal, so the installer's
         output goes to the private state log, never to inherited stdio, and it
-        never reads the desktop's keyboard input."""
+        never reads the desktop's keyboard input. It runs in its own session,
+        without the desktop's controlling terminal, and git is told not to
+        prompt, so a credential question fails instead of opening /dev/tty."""
         target = self.desk.shell.kilix_tts_target()
         if not target:
             return False
@@ -78,7 +80,8 @@ class Controller:
             log = subprocess.DEVNULL
         try:
             return subprocess.call(default_voice_command(target), stdin=subprocess.DEVNULL,
-                                   stdout=log, stderr=log) == 0
+                                   stdout=log, stderr=log, start_new_session=True,
+                                   env=dict(os.environ, GIT_TERMINAL_PROMPT='0')) == 0
         except OSError:
             return False
         finally:

@@ -140,7 +140,9 @@ with H.desktop_dir() as home:
     launcher.write_text('#!/bin/sh\n'
                         'echo "Prepared 2 packages in 3ms"\n'
                         'echo "Installed kilix-content" >&2\n'
-                        'if IFS= read -r line; then echo "read:$line"; else echo "stdin:eof"; fi\n')
+                        'if IFS= read -r line; then echo "read:$line"; else echo "stdin:eof"; fi\n'
+                        'echo "session:$(cut -d" " -f6 /proc/$$/stat) pid:$$"\n'
+                        'echo "git-prompt:${GIT_TERMINAL_PROMPT-unset}"\n')
     launcher.chmod(0o755)
     screen=tempfile.TemporaryFile()
     keys_read,keys_write=os.pipe()
@@ -161,10 +163,24 @@ with H.desktop_dir() as home:
     text=log.read_text()
     assert 'Prepared 2 packages in 3ms' in text and 'Installed kilix-content' in text,text
     assert 'stdin:eof' in text and 'desktop-key' not in text,text
+    # Its own session: no controlling terminal to open /dev/tty on, and git
+    # must fail a credential question instead of asking one.
+    session=next(line for line in text.splitlines() if line.startswith('session:'))
+    leader,pid=(part.split(':')[1] for part in session.split())
+    assert leader==pid and int(leader)!=os.getsid(0),session
+    assert 'git-prompt:0' in text,text
     # The log keeps the newest run only.
     with mock.patch.object(desk.shell,'kilix_tts_target',return_value=[str(launcher),'tts']), \
             mock.patch('system_voice.subprocess.call',return_value=1) as install:
         assert voice.install_default_voice() is False
         assert install.call_args.kwargs['stdin'] is subprocess.DEVNULL
     assert log.read_text()==''
+    # A log that cannot be opened sends the output nowhere, not to the screen.
+    log.unlink();log.mkdir()
+    with mock.patch.object(desk.shell,'kilix_tts_target',return_value=[str(launcher),'tts']), \
+            mock.patch('system_voice.subprocess.call',return_value=0) as install:
+        assert voice.install_default_voice() is True
+        kwargs=install.call_args.kwargs
+        assert kwargs['stdout'] is subprocess.DEVNULL and kwargs['stderr'] is subprocess.DEVNULL,kwargs
+        assert kwargs['stdin'] is subprocess.DEVNULL and kwargs['start_new_session'] is True,kwargs
     voice.close()
