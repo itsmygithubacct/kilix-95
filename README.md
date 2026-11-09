@@ -92,8 +92,8 @@ From a normal Kilix session:
 kilix desktop
 ```
 
-On Plebian-OS this opens Kilix 95. Elsewhere, `kilix xp` opens it with the XP
-flavor, and `KILIX_DESKTOP_FLAVOR=95|xp` selects the flavor on first launch.
+On Plebian-OS this opens Kilix 95. `kilix xp` opens it with the XP flavor, and
+`KILIX_DESKTOP_FLAVOR=95|xp` selects the flavor on first launch.
 
 For local development from this checkout:
 

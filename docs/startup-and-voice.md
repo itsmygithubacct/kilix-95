@@ -3,9 +3,10 @@
 The windows Kilix 95 offers on Plebian-OS at startup (Kilix Workflows, system voice, model setup) and the Document Reader. Moved from the [README](../README.md).
 
 Note on the current code (VERSION 0.2.3): every desktop start runs
-`kilix wizard install-default-voice` in the background (output in the
-desktop's private `default-voice.log`), which installs and selects the
-`kilix-female-02` voice without asking and without turning the greeting on.
+`kilix wizard install-default-voice` and waits for it, in its own session with
+no terminal and its output in the desktop's private `default-voice.log`. It
+installs and selects the `kilix-female-02` voice without asking and without
+turning the greeting on.
 The **Enable system voice** window greets with `kilix-female-02`. The System
 voice section below was written before that change and still names the earlier
 voice as the one the offer downloads; that earlier voice remains the explicit
