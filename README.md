@@ -28,6 +28,8 @@ kilix desktop
 
 Quit through Start -> Shut Down..., or press `Ctrl+Alt+Q`.
 
+![Kilix 95 on the first page of a Plebian-OS 0.2.3 session, with the Start menu open](docs/images/kilix-95-desktop.jpg)
+
 ![Kilix 95 XP flavor desktop](docs/kilix-xp.png)
 
 ## What it does
