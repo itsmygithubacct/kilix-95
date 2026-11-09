@@ -14,6 +14,10 @@ from kilix_sdk import content, paths
 from kilix_sdk._content_runtime import apps_root
 import model_wizard
 
+# The kilix-llm catalogue id, kilix-content asset id and licence record id. The
+# asset's one member is the GGUF of the same name, which kilix-llm runs on CPU.
+NO_LOOP_MODEL = "qwen-0.8b-no-loop-02"
+
 
 def executable(name, prefix=None, candidates=()):
     found = shutil.which(name)
@@ -84,8 +88,24 @@ def model_records(assets, decisions, *, local_models=None):
             rows.append(command_record("bonsai-image", "Bonsai Image Generation",
                                        "paint", [binary]))
     if groups.get("chat"):
-        if binary := executable("kilix-bonsai-chat", "KILIX_BONSAI_PREFIX"):
-            rows.append(command_record("llm-chat", "LLM Chat", "chat", [binary]))
+        # Bonsai's chat cannot open a kilix-llm GGUF, so that asset alone adds
+        # no Bonsai row.
+        if any(a.provider != "kilix-llm" for a, _ in groups["chat"]):
+            if binary := executable("kilix-bonsai-chat", "KILIX_BONSAI_PREFIX"):
+                rows.append(command_record("llm-chat", "LLM Chat", "chat", [binary]))
+        no_loop = next((p for a, p in groups["chat"] if a.asset_id == NO_LOOP_MODEL), None)
+        # Own ids and labels: the desktop keeps one icon per label, and these
+        # sit beside the Bonsai/Ollama LLM Chat and the Ollama Avatar.
+        if no_loop and (binary := executable("kilix-llm", "KILIX_LLM_PREFIX")):
+            weights = str(no_loop / (NO_LOOP_MODEL + ".gguf"))
+            rows.append(command_record(
+                "llm-chat-no-loop", "LLM Chat (Qwen 0.8B no-loop)", "chat",
+                [binary, "chat", "--model-id", NO_LOOP_MODEL, "--model", weights,
+                 "--gpu-layers", "0", "--think"]))
+            if avatar := executable("kilix-avatar", "KILIX_AVATAR_PREFIX"):
+                rows.append(command_record(
+                    "avatar-no-loop", "Kilix Avatar (Qwen 0.8B no-loop)", "avatar",
+                    [avatar, "--chat", "--model", NO_LOOP_MODEL, "--model-file", weights]))
     if groups.get("dictation"):
         whisper = next(((a, p) for a, p in groups["dictation"]
                         if a.asset_id == "faster-whisper-small-en"), None)

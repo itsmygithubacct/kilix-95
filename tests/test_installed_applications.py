@@ -33,6 +33,54 @@ def interfaces_require_models_and_respect_declines():
         assert not A.model_records(assets, {}, local_models={"sample:1b": {}})[0]
 
 
+def no_loop_gguf_adds_kilix_llm_chat_and_avatar_beside_existing_rows():
+    assert A.model_wizard.group(dict(id=A.NO_LOOP_MODEL, provider="kilix-llm")) == "chat", \
+        "this Kilix host does not file kilix-llm assets under the chat page"
+    no_loop = (model("qwen-0.8b-no-loop-02", "kilix-llm"), Path("/models/no loop"))
+    weights = "/models/no loop/qwen-0.8b-no-loop-02.gguf"
+    seen = []
+
+    def installed(name, *args, **kwargs):
+        seen.append((name, *args))
+        return "/bin/" + name
+    with patch.object(A, "executable", side_effect=installed):
+        rows, _ = A.model_records([no_loop], {}, local_models={})
+        by_id = {r["id"]: r for r in rows}
+        # The GGUF alone opens no Bonsai chat.
+        assert set(by_id) == {"model-store", "llm-chat-no-loop", "avatar-no-loop"}
+        assert ("kilix-llm", "KILIX_LLM_PREFIX") in seen
+        assert "kilix-bonsai-chat" not in {name for name, *_ in seen}
+        chat, avatar = by_id["llm-chat-no-loop"], by_id["avatar-no-loop"]
+        assert (chat["label"], chat["icon"]) == ("LLM Chat (Qwen 0.8B no-loop)", "chat")
+        assert chat["argv"] == ("/bin/kilix-llm", "chat", "--model-id", "qwen-0.8b-no-loop-02",
+                                "--model", weights, "--gpu-layers", "0", "--think")
+        assert (avatar["label"], avatar["icon"]) == ("Kilix Avatar (Qwen 0.8B no-loop)", "avatar")
+        assert avatar["argv"] == ("/bin/kilix-avatar", "--chat", "--model", "qwen-0.8b-no-loop-02",
+                                  "--model-file", weights)
+        # Bonsai, Ollama and the no-loop rows coexist with distinct ids and labels.
+        rows, _ = A.model_records([(model("bonsai-8b"), Path("/models/chat")), no_loop], {},
+                                  local_models={"sample:1b": {}})
+        by_id = {r["id"]: r for r in rows}
+        assert by_id["llm-chat"]["argv"] == ("/bin/kilix-bonsai-chat",)
+        assert by_id["avatar"]["argv"] == ("/bin/kilix-avatar", "--chat", "--model", "sample:1b")
+        assert {"llm-chat-no-loop", "avatar-no-loop"} <= by_id.keys()
+        assert len({r["id"] for r in rows}) == len({r["label"].casefold() for r in rows}) == len(rows)
+        # An Ollama chat asset still offers Bonsai's chat, as before.
+        rows, _ = A.model_records([(model("qwen3.5-4b", "kilix-ollama"), Path("/models/q"))], {},
+                                  local_models={})
+        assert [r["id"] for r in rows] == ["model-store", "llm-chat"]
+        rows, _ = A.model_records([no_loop], {"chat": {"answer": "no"}}, local_models={})
+        assert [r["id"] for r in rows] == ["model-store"]
+    with patch.object(A, "executable",
+                      side_effect=lambda name, *a, **kw: None if name == "kilix-avatar" else "/bin/" + name):
+        ids = {r["id"] for r in A.model_records([no_loop], {}, local_models={})[0]}
+        assert "llm-chat-no-loop" in ids and "avatar-no-loop" not in ids
+    with patch.object(A, "executable",
+                      side_effect=lambda name, *a, **kw: None if name == "kilix-llm" else "/bin/" + name):
+        ids = {r["id"] for r in A.model_records([no_loop], {}, local_models={})[0]}
+        assert not {"llm-chat-no-loop", "avatar-no-loop", "llm-chat"} & ids
+
+
 def partial_and_removed_files_are_not_models():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -84,6 +132,7 @@ def empty_inventory_does_not_install_models_or_programs():
 
 
 interfaces_require_models_and_respect_declines()
+no_loop_gguf_adds_kilix_llm_chat_and_avatar_beside_existing_rows()
 partial_and_removed_files_are_not_models()
 desktop_and_menu_launch_same_app_and_refresh_removes_it()
 installed_desktop_entry_is_discovered_on_desktop()
