@@ -2,6 +2,8 @@
 import json
 import os
 from pathlib import Path
+import subprocess
+import tempfile
 from unittest import mock
 import harness as H
 import system_voice as V
@@ -17,7 +19,8 @@ with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'1
         assert voice.state['offered'] and not voice.state['enabled']
         assert voice.state['greeting']=='hello'
         start.assert_not_called()
-        install.assert_called_once_with(['/fixture/kilix','wizard','install-default-voice'])
+        install.assert_called_once()
+        assert install.call_args.args[0]==['/fixture/kilix','wizard','install-default-voice']
         assert '--prepare-system-voice' not in install.call_args.args[0]
         assert '--enable-kristin' not in install.call_args.args[0]
     count=len(desk.wm.windows)
@@ -53,7 +56,8 @@ with H.desktop_dir(), mock.patch.dict(os.environ, {'KILIX_SYSTEM_VOICE_OFFER':'0
     with mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), \
             mock.patch('system_voice.subprocess.call',return_value=0) as install:
         voice.startup()
-        install.assert_called_once_with(['/fixture/kilix','wizard','install-default-voice'])
+        install.assert_called_once()
+        assert install.call_args.args[0]==['/fixture/kilix','wizard','install-default-voice']
     assert H.find_window(desk,'SystemVoice') is None
     assert not voice.state['enabled']
     with mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), mock.patch('system_voice.subprocess.Popen') as spawn:
@@ -124,3 +128,43 @@ with H.desktop_dir():
         voice.close()
     voice.save(volume=100)
     assert V.Controller(desk).state['volume']==20
+
+# First run installs the default voice while the desktop owns the terminal.
+# The installer's output must not be drawn over the desktop, and it must not
+# read keys typed at the desktop. Run a real fixture launcher with the
+# desktop's stdin, stdout and stderr replaced by a pipe holding a key press and
+# a capture file, then compare what each side saw.
+with H.desktop_dir() as home:
+    desk=H.make_desk();voice=V.Controller(desk)
+    launcher=Path(home)/'bin'/'kilix';launcher.parent.mkdir()
+    launcher.write_text('#!/bin/sh\n'
+                        'echo "Prepared 2 packages in 3ms"\n'
+                        'echo "Installed kilix-content" >&2\n'
+                        'if IFS= read -r line; then echo "read:$line"; else echo "stdin:eof"; fi\n')
+    launcher.chmod(0o755)
+    screen=tempfile.TemporaryFile()
+    keys_read,keys_write=os.pipe()
+    os.write(keys_write,b'desktop-key\n')
+    saved=[os.dup(fd) for fd in (0,1,2)]
+    try:
+        os.dup2(keys_read,0);os.dup2(screen.fileno(),1);os.dup2(screen.fileno(),2)
+        with mock.patch.object(desk.shell,'kilix_tts_target',return_value=[str(launcher),'tts']):
+            installed=voice.install_default_voice()
+    finally:
+        for fd,copy in zip((0,1,2),saved):
+            os.dup2(copy,fd);os.close(copy)
+        os.close(keys_read);os.close(keys_write)
+    screen.seek(0);drawn=screen.read();screen.close()
+    assert installed is True
+    assert drawn==b'',drawn
+    log=Path(os.environ['KILIX95_STATE_HOME'])/V.DEFAULT_VOICE_LOG
+    text=log.read_text()
+    assert 'Prepared 2 packages in 3ms' in text and 'Installed kilix-content' in text,text
+    assert 'stdin:eof' in text and 'desktop-key' not in text,text
+    # The log keeps the newest run only.
+    with mock.patch.object(desk.shell,'kilix_tts_target',return_value=[str(launcher),'tts']), \
+            mock.patch('system_voice.subprocess.call',return_value=1) as install:
+        assert voice.install_default_voice() is False
+        assert install.call_args.kwargs['stdin'] is subprocess.DEVNULL
+    assert log.read_text()==''
+    voice.close()
