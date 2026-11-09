@@ -22,6 +22,8 @@ def offer_enabled():
 # First run installs this voice with no question. It does not turn the
 # greeting on, and it does not download Piper Kristin.
 DEFAULT_VOICE_ARGS = ('--install=kilix-female-02', '--set', 'engine=piper', '--set', 'voice=kilix-female-02')
+# The newest first-run install's output, in the desktop's private state.
+DEFAULT_VOICE_LOG = 'default-voice.log'
 
 
 def default_voice_command(target):
@@ -59,14 +61,32 @@ class Controller:
         self.state = state
 
     def install_default_voice(self):
-        """Select kilix-female-02. A missing launcher does not enable the greeting."""
+        """Select kilix-female-02. A missing launcher does not enable the greeting.
+
+        The desktop draws into this process's terminal, so the installer's
+        output goes to the private state log, never to inherited stdio, and it
+        never reads the desktop's keyboard input. It runs in its own session,
+        without the desktop's controlling terminal, and git is told not to
+        prompt, so a credential question fails instead of opening /dev/tty."""
         target = self.desk.shell.kilix_tts_target()
         if not target:
             return False
+        import storage
         try:
-            return subprocess.call(default_voice_command(target)) == 0
+            path = storage.state_dir(DEFAULT_VOICE_LOG)
+            os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+            log = open(path, 'wb')
+        except OSError:
+            log = subprocess.DEVNULL
+        try:
+            return subprocess.call(default_voice_command(target), stdin=subprocess.DEVNULL,
+                                   stdout=log, stderr=log, start_new_session=True,
+                                   env=dict(os.environ, GIT_TERMINAL_PROMPT='0')) == 0
         except OSError:
             return False
+        finally:
+            if log is not subprocess.DEVNULL:
+                log.close()
 
     def startup(self):
         self.install_default_voice()
