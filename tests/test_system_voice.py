@@ -184,3 +184,25 @@ with H.desktop_dir() as home:
         assert kwargs['stdout'] is subprocess.DEVNULL and kwargs['stderr'] is subprocess.DEVNULL,kwargs
         assert kwargs['stdin'] is subprocess.DEVNULL and kwargs['start_new_session'] is True,kwargs
     voice.close()
+
+# A Paradee ready line is the fresh-install session. Female-02 still updates
+# the status, and this does not change an already-enabled greeting.
+with H.desktop_dir():
+    desk=H.make_desk(); voice=V.controller(desk)
+    voice.state['enabled']=True
+    with mock.patch.object(desk.shell,'kilix_tts_target',return_value=['/fixture/kilix','tts']), \
+            mock.patch('system_voice.subprocess.Popen') as spawn:
+        process=spawn.return_value; process.poll.return_value=None
+        voice.start()
+        assert voice.status=='Loading system voice…'
+        with open(voice.log.name,'ab') as log:
+            log.write(b'System voice ready: paradee af_heart\n')
+        voice.tick(0)
+        assert voice.status=='Paradee is ready for this session.'
+        voice.stop()
+        voice.start()
+        with open(voice.log.name,'ab') as log:
+            log.write(b'System voice ready: kilix-female-02\n')
+        voice.tick(0)
+        assert voice.status=='kilix-female-02 is ready for this session.'
+        voice.close()
