@@ -794,8 +794,9 @@ When the model wizard has installed `qwen-0.8b-no-loop-02` and kilix-llm is
 installed, the desktop offers **LLM Chat (Qwen 0.8B no-loop)**, an interactive
 `kilix-llm chat` with thinking on, and **Kilix Avatar (Qwen 0.8B no-loop)**,
 Avatar's conversation with that model and thinking off. Both run on CPU from
-the installed file. That model alone adds no Bonsai **LLM Chat** entry, because
-Bonsai's chat cannot open it.
+the installed file. The first start of either builds kilix-llm's CPU runtime
+once, which takes a few minutes on a small CPU. That model alone adds no Bonsai
+**LLM Chat** entry, because Bonsai's chat cannot open it.
 
 Start ▸ Programs ▸ **PTY Sessions** opens the graphical persistent-pane manager.
 It lists attached, detached and unreachable sessions, previews output read-only,
