@@ -2,8 +2,9 @@
 
 Binary weights through 32 px, and a blended scalable upright face above.
 One weight file per small em: ``neuronte-ui{em}-v0.nrt``, and for italic
-``neuronte-ui{em}-italic-v0.nrt``. Bold is the letter struck twice, one
-pixel to the right, inside that file. A size or style with no file is
+``neuronte-ui{em}-italic-v0.nrt``. Small bold is the letter struck twice,
+one pixel to the right. Scalable bold dilates ink by round(em/32) pixels
+and adds exactly that many pixels to each regular advance. A size or style with no file is
 DejaVu (DejaVu Oblique for italic). A string with a character the file
 does not cover is measured and drawn with DejaVu, so the two faces are
 never mixed on one line.
@@ -62,6 +63,19 @@ def _load_library():
             ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
             ctypes.c_char_p, ctypes.c_size_t, ctypes.c_uint32]
         lib.neuronte_draw_text.restype = ctypes.c_int
+        # Older libraries still serve exact small faces. Scalable bold needs
+        # both new entry points so its ink and measurements cannot disagree.
+        try:
+            width_stroke = lib.neuronte_text_width_stroke
+            draw_stroke = lib.neuronte_draw_text_stroke
+        except AttributeError:
+            lib.has_stroke = False
+        else:
+            width_stroke.argtypes = lib.neuronte_text_width.argtypes
+            width_stroke.restype = ctypes.c_int
+            draw_stroke.argtypes = lib.neuronte_draw_text.argtypes
+            draw_stroke.restype = ctypes.c_int
+            lib.has_stroke = True
         lib.neuronte_advance_scalar.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         lib.neuronte_advance_scalar.restype = ctypes.c_uint32
         lib.neuronte_close.argtypes = [ctypes.c_void_p]
@@ -184,7 +198,13 @@ class _Size:
 
     def width(self, text, bold):
         data = text.encode("utf-8")
+        if self.scalable and bold:
+            return _lib.neuronte_text_width_stroke(
+                self.ptr, data, len(data), self.stroke(bold), self.em)
         return _lib.neuronte_text_width(self.ptr, data, len(data), bold, self.em)
+
+    def stroke(self, bold):
+        return max(1, (self.em + 16) // 32) if self.scalable and bold else int(bool(bold))
 
 
 def open_size(em, italic=False):
@@ -265,9 +285,10 @@ def _mask(size, text, bold, mode):
     buf_w = width + size.em + 2
     buf_h = size.rows
     buf = (ctypes.c_uint32 * (buf_w * buf_h))()
-    rc = _lib.neuronte_draw_text(
+    draw = _lib.neuronte_draw_text_stroke if size.scalable and bold else _lib.neuronte_draw_text
+    rc = draw(
         size.ptr, ctypes.cast(buf, ctypes.c_void_p), buf_w, buf_w, buf_h,
-        0, -size.ui_top, size.em, bold, data, len(data), 0xFFFFFFFF)
+        0, -size.ui_top, size.em, size.stroke(bold), data, len(data), 0xFFFFFFFF)
     if rc < 0:
         return None
     if mode == "1":
@@ -302,10 +323,26 @@ class NeuronteFont:
         self._fallback_font = fallback
         self._variant = variant
 
-    def _use_face(self, text):
+    def _use_face(self, text, direction=None, features=None, language=None, stroke_width=0):
+        # This adapter lays out independent supported scalars only. Let the
+        # shaped fallback handle a whole request when it asks for a layout
+        # feature or outline this renderer cannot honor.
+        if (direction is not None or features is not None or language is not None
+                or stroke_width):
+            return False
         if not self._face.covers(text):
             return False
         return self._face.width(text, self.bold) >= 0
+
+    def for_text(self, text):
+        """Select one font for a consumer that later measures substrings.
+
+        Keep this selection for a whole styled run, including its metrics,
+        selection redraw and caret prefixes. A supported prefix of an
+        unsupported run must not switch back to neural advances.
+        """
+        with self._face.lock:
+            return self if self._use_face(_as_text(text)) else self._fallback_font
 
     def _offset(self, anchor):
         if anchor in (None, "la", "lt"):
@@ -318,7 +355,7 @@ class NeuronteFont:
                   language=None):
         s = _as_text(text)
         with self._face.lock:
-            if not self._use_face(s):
+            if not self._use_face(s, direction, features, language):
                 return self._fallback_font.getlength(
                     s, mode, direction, features, language)
             return self._face.width(s, self.bold)
@@ -328,7 +365,7 @@ class NeuronteFont:
         s = _as_text(text)
         off = self._offset(anchor)
         with self._face.lock:
-            if off is None or not self._use_face(s):
+            if off is None or not self._use_face(s, direction, features, language, stroke_width):
                 return self._fallback_font.getbbox(
                     s, mode, direction, features, language, stroke_width, anchor)
             width = self._face.width(s, self.bold)
@@ -352,7 +389,7 @@ class NeuronteFont:
         s = _as_text(text)
         off = self._offset(anchor)
         with self._face.lock:
-            if off is None or not self._use_face(s):
+            if off is None or not self._use_face(s, direction, features, language, stroke_width):
                 return self._fallback_font.getmask2(
                     s, mode, direction, features, language, stroke_width,
                     anchor, ink, start, *args, **kwargs)
@@ -383,5 +420,7 @@ def try_font(size, bold, fallback, variant, italic=False):
         return None
     face = open_size(size, italic)
     if face is None:
+        return None
+    if face.scalable and bold and not _lib.has_stroke:
         return None
     return NeuronteFont(size, bold, path, face, fallback, variant, italic)

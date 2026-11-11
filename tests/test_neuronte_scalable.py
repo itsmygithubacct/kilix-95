@@ -29,8 +29,10 @@ for em in (33, 34, 43, 44, 64, 96):
         w, h = mask.size
         full = (ctypes.c_uint32 * (w * 2 * em))()
         with face.lock:
-            rc = N._lib.neuronte_draw_text(face.ptr, full, w, w, 2*em,
-                                           0, 0, em, int(bold), b'Hg', 2, 0xFFFFFFFF)
+            draw_text = N._lib.neuronte_draw_text_stroke if bold else N._lib.neuronte_draw_text
+            stroke = max(1, (em+16)//32) if bold else 0
+            rc = draw_text(face.ptr, full, w, w, 2*em,
+                           0, 0, em, stroke, b'Hg', 2, 0xFFFFFFFF)
         assert rc >= 0
         expected = bytes(p >> 24 for p in full)[face.ui_top*w:(face.ui_top+h)*w]
         assert bytes(mask) == expected, (em, bold)
@@ -43,6 +45,22 @@ for em in (33, 34, 43, 44, 64, 96):
         fallback = font._fallback_font
         assert font.getlength(text) == fallback.getlength(text)
         assert bytes(font.getmask(text)) == bytes(fallback.getmask(text))
+        if bold:
+            regular = T.font_at(em)
+            assert font.getlength('Hg') == regular.getlength('Hg') + 2*stroke
+            # Independently dilate a single regular glyph. Every intermediate
+            # column is included; offset-only double strikes leave gaps.
+            source = regular.getmask('H', 'L')
+            ink = Image.Image()._new(source)
+            from PIL import ImageChops
+            expected_ink = ink.copy()
+            for offset_x in range(1, stroke+1):
+                shifted = Image.new('L', ink.size)
+                shifted.paste(ink, (offset_x, 0))
+                expected_ink = ImageChops.lighter(expected_ink, shifted)
+            actual_ink = Image.Image()._new(font.getmask('H', 'L'))
+            assert actual_ink.crop((0,0,*ink.size)).tobytes() == expected_ink.tobytes()
+            assert sum(actual_ink.tobytes()) > sum(ink.tobytes())
     assert isinstance(T.font_at(em, italic=True), ImageFont.FreeTypeFont)
 with patch.object(N.os.path, 'isfile', return_value=False):
     assert N._load(44) is None
