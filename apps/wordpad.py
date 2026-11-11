@@ -1,6 +1,7 @@
 """kilix desktop — WordPad. Real rich text: paragraphs of styled runs, drawn
-word-wrapped with the correct DejaVu variant per run (no antialiasing, manual
-underline). Bold/Italic/Underline/size/colour apply to the selection or the
+word-wrapped per run (manual underline). A packed size uses
+the Neuronte face, and italic its italic file; a size or style with no weight
+file stays DejaVu or DejaVu oblique. Bold/Italic/Underline/size/colour apply to the selection or the
 caret's typing style; documents round-trip losslessly through a JSON .krt and
 flatten to plain .txt."""
 import json
@@ -38,11 +39,7 @@ def _font(bold, italic, size):
     key = (bool(bold), bool(italic), max(1, min(int(size), MAX_SIZE)))
     f = _FONTS.get(key)
     if f is None:
-        suff = {(0, 0): "", (1, 0): "-Bold", (0, 1): "-Oblique",
-                (1, 1): "-BoldOblique"}[(int(bool(bold)), int(bool(italic)))]
-        f = T._find_font(["DejaVuSans%s.ttf" % suff,
-                          "/usr/share/fonts/truetype/dejavu/DejaVuSans%s.ttf"
-                          % suff], key[2])
+        f = T.font_at(key[2], bold=key[0], italic=key[1])
         _FONTS[key] = f
     return f
 

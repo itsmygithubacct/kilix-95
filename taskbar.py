@@ -14,8 +14,8 @@ import widgets as W
 import wm
 import xdgapps
 
-START_W = 58
-CLOCK_W = 76
+START_W = getattr(T, "START_W", 58)
+CLOCK_W = getattr(T, "CLOCK_W", 76)
 QL_BTN = 23                       # quick-launch button width
 
 
@@ -36,6 +36,9 @@ class Taskbar:
 
     def _start_w(self):
         return getattr(T, "START_W", START_W)
+
+    def _clock_w(self):
+        return getattr(T, "CLOCK_W", CLOCK_W)
 
     # quick-launch toolbar (right of Start) --------------------------------
     def _ql_defs(self):
@@ -88,7 +91,7 @@ class Taskbar:
     def _tray_rect(self):
         x0, y0, x1, y1 = self.rect()
         w = len(self._tray_defs()) * 18 + 6
-        tx1 = (x1 - CLOCK_W - 2) - 4
+        tx1 = (x1 - self._clock_w() - 2) - 4
         return tx1 - w + 1, y0 + 4, tx1, y1 - 3
 
     def _tray_icons(self):
@@ -102,7 +105,7 @@ class Taskbar:
 
     def _clock_rect(self):
         x0, y0, x1, y1 = self.rect()
-        return x1 - CLOCK_W - 2, y0 + 4, x1 - 2, y1 - 3
+        return x1 - self._clock_w() - 2, y0 + 4, x1 - 2, y1 - 3
 
     def _buttons(self):
         """[(win, x0, x1)] task buttons in stable launch order."""

@@ -3,16 +3,23 @@
 Everything visual that is shared between modules lives here so the look can
 be tuned in one place. The default flavor is the classic Windows 95 look; an
 XP flavor switches identity, colors, chrome accents and taskbar treatment at
-runtime. Text is rendered with PIL in binary (non-antialiased) mode for the
-crisp bitmap-font feel.
+runtime. Small text is binary; the scalable face above 32 px retains
+antialiased coverage even when a widget requests binary masks.
 
-Fonts: real MS fonts are never bundled; if you own them, drop .ttf files into
-assets/fonts/ (gitignored) and they are picked up by preference. Otherwise
-DejaVu Sans at 11 px is a close enough stand-in.
+Fonts: chrome labels use the Neuronte desktop face when
+``neuronte-ui{em}-v0.nrt`` is present for that size, and italic uses
+``neuronte-ui{em}-italic-v0.nrt``. Bold is that same face struck twice, one
+pixel to the right. Upright sizes above 32 use neuronte-ui-large-v0.nrt.
+A size or style with no file uses the TrueType
+fallback: a .ttf in assets/fonts/ (gitignored) if you supply one, otherwise
+DejaVu Sans, or DejaVu Sans Oblique for italic.
 """
 import os
+import time
 
 from PIL import ImageFont
+
+import neuronte_face
 
 _DEFAULT = object()
 
@@ -26,6 +33,7 @@ _BASE_METRICS = {
     "ICON_S": 16,               # small icon size (title bars, menus, lists)
     "CELL_W": 75, "CELL_H": 66, # desktop / file-manager icon grid cell
     "START_W": 58,
+    "CLOCK_W": 76,
     "WALL_IMAGE": "assets/wallpapers/plebian-os.png",
 }
 
@@ -136,6 +144,10 @@ def apply_flavor(name):
         if k != "aliases":
             globals()[k] = v
     FLAVOR = key
+    # The first call runs before the fonts exist. Later calls (a flavor
+    # switch) put the DejaVu-era START_W back, so measure again.
+    if "BOLD" in globals() and "_remeasure_chrome" in globals():
+        _remeasure_chrome()
     return FLAVOR
 
 
@@ -157,7 +169,7 @@ def _find_font(names, size):
 def _candidates(bold):
     out = []
     assets = os.path.join(_here, "assets", "fonts")
-    if os.path.isdir(assets):   # user-supplied fonts win (never committed)
+    if os.path.isdir(assets):   # user fonts beat DejaVu; a weight file beats both
         pref = [f for f in sorted(os.listdir(assets))
                 if f.lower().endswith((".ttf", ".otf"))
                 and (("bold" in f.lower()) == bold)]
@@ -168,9 +180,45 @@ def _candidates(bold):
     return out
 
 
-FONT   = _find_font(_candidates(False), 11)
-BOLD   = _find_font(_candidates(True), 11)
-SMALL  = _find_font(_candidates(False), 10)
+# Chrome around the letters, taken off the old constants (Start 58 / 64,
+# clock well 76) once the DejaVu advances are subtracted. Letter widths
+# are measured from the face that actually draws.
+_FONT_AT = {}
+_START_TEXT_X = 24
+_START_RIGHT = {"95": 3, "xp": 11}
+_CLOCK_LEFT = 18
+_CLOCK_RIGHT = 7
+
+
+def _style_candidates(bold, italic):
+    if not italic:
+        return _candidates(bold)
+    suff = "-BoldOblique" if bold else "-Oblique"
+    return ["DejaVuSans%s.ttf" % suff,
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans%s.ttf" % suff]
+
+
+def font_at(size, bold=False, italic=False):
+    """The face for this pixel size and style, or DejaVu when that file is
+    absent (the DejaVu oblique for italic). A later Neuronte size is another
+    weight file, not a change here.
+    """
+    size = max(1, min(int(round(size)), 256))
+    key = (size, bool(bold), bool(italic))
+    hit = _FONT_AT.get(key)
+    if hit is not None:
+        return hit
+    fallback = _find_font(_style_candidates(key[1], key[2]), size)
+    wrapped = neuronte_face.try_font(size, key[1], fallback, font_at,
+                                     italic=key[2])
+    font = wrapped or fallback
+    _FONT_AT[key] = font
+    return font
+
+
+FONT = font_at(11, bold=False)
+BOLD = font_at(11, bold=True)
+SMALL = font_at(10, bold=False)
 
 
 def text_w(font, s):
@@ -186,6 +234,26 @@ def ellipsize(font, s, max_w):
     while s and text_w(font, s + "…") > max_w:
         s = s[:-1]
     return s + "…"
+
+
+def _widest_clock():
+    """The widest ``%I:%M %p`` the taskbar clock can draw."""
+    widest = 0
+    for hour in range(24):
+        for minute in range(60):
+            stamp = time.struct_time((2026, 6, 15, hour, minute, 0, 0, 166, -1))
+            widest = max(widest, text_w(FONT, time.strftime("%I:%M %p", stamp)))
+    return widest
+
+
+def _remeasure_chrome():
+    global START_W, CLOCK_W
+    START_W = (_START_TEXT_X + text_w(BOLD, START_LABEL)
+               + _START_RIGHT.get(FLAVOR, 3))
+    CLOCK_W = _CLOCK_LEFT + _widest_clock() + _CLOCK_RIGHT
+
+
+_remeasure_chrome()
 
 
 def _blend(a, b, t):

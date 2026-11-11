@@ -6,8 +6,6 @@ card drag back here. Cards, suits and backs are original pixel art.
 """
 import random
 
-from PIL import ImageFont
-
 import theme as T
 import widgets as W
 import wm
@@ -113,10 +111,9 @@ class Solitaire(wm.Window):
     # ── geometry ────────────────────────────────────────────────────────────
     @staticmethod
     def _font_at(base, px):
-        path = getattr(base, "path", None)
-        if not path:
-            return base
-        return ImageFont.truetype(path, max(1, int(round(px))))
+        # Use the pixel face or scalable face, with the normal asset fallback.
+        return T.font_at(max(1, int(round(px))),
+                         bold=bool(getattr(base, "bold", False)))
 
     def _layout(self):
         cw, ch = self.client_size()
