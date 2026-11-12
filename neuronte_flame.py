@@ -23,7 +23,7 @@ def image(size):
         if lib is None:
             return None
         if _handle is None:
-            path = os.path.join(neuronte_face._ROOT, "weights", "neuronte-flame-v0.nrt")
+            path = neuronte_face._path("weights", "neuronte-flame-v0.nrt")
             handle = ctypes.c_void_p()
             if lib.neuronte_open_file(path.encode(), ctypes.byref(handle)) != 0:
                 _failed = True

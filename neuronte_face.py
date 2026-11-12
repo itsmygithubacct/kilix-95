@@ -29,7 +29,9 @@ import threading
 
 from PIL import Image, ImageFont
 
-_ROOT = os.environ.get("NEURONTE_HOME") or "/home/pleb/projects/neuronte"
+# A Neuronte checkout (build/, weights/, font/, train/). Unset means no
+# Neuronte: every size keeps the theme's own DejaVu face.
+_ROOT = os.environ.get("NEURONTE_HOME", "")
 
 _lib = None
 _lib_failed = False
@@ -37,6 +39,11 @@ _lib_lock = threading.RLock()
 _sizes = {}          # (em, italic) -> _Size or None
 _sizes_lock = threading.Lock()
 _tops = None
+
+
+def _path(*parts):
+    """A file in the Neuronte checkout, or "" when none is configured."""
+    return os.path.join(_ROOT, *parts) if _ROOT else ""
 
 
 def _library():
@@ -48,7 +55,11 @@ def _load_library():
     global _lib, _lib_failed
     if _lib is not None or _lib_failed:
         return _lib
-    path = os.environ.get("NEURONTE_LIB") or os.path.join(_ROOT, "build", "libneuronte.so")
+    path = os.environ.get("NEURONTE_LIB") or _path("build", "libneuronte.so")
+    if not path:
+        # ctypes.CDLL("") would open this process, not fail.
+        _lib_failed = True
+        return None
     try:
         lib = ctypes.CDLL(path)
         lib.neuronte_open_file.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
@@ -129,7 +140,7 @@ def _ui_tops():
     global _tops
     if _tops is not None:
         return _tops
-    path = os.path.join(_ROOT, "train", "glyphs.py")
+    path = _path("train", "glyphs.py")
     try:
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
@@ -144,7 +155,7 @@ def _ui_tops():
 
 
 def _face_path(em, italic):
-    return os.path.join(_ROOT, "font",
+    return _path("font",
                         "ui-%d%s.txt" % (em, "-italic" if italic else ""))
 
 
@@ -222,8 +233,8 @@ def open_size(em, italic=False):
 
 def weight_path(em, italic=False):
     if int(em) >= 33 and not italic:
-        return os.path.join(_ROOT, "weights", "neuronte-ui-large-v0.nrt")
-    return os.path.join(_ROOT, "weights", "neuronte-ui%d%s-v0.nrt"
+        return _path("weights", "neuronte-ui-large-v0.nrt")
+    return _path("weights", "neuronte-ui%d%s-v0.nrt"
                         % (int(em), "-italic" if italic else ""))
 
 

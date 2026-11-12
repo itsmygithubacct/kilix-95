@@ -12,10 +12,16 @@ from PIL import Image, ImageDraw
 import neuronte_face
 import theme as T
 
-ROOT = os.environ.get("NEURONTE_HOME") or "/home/pleb/projects/neuronte"
 EMS = range(1, 129)
 UPRIGHT = [em for em in range(1, 33) if os.path.isfile(neuronte_face.weight_path(em))]
 ITALIC = [em for em in EMS if os.path.isfile(neuronte_face.weight_path(em, True))]
+
+def require(ready, why):
+    """End this test as a skip where the Neuronte files it needs are absent."""
+    if not ready:
+        print("skip: %s; set NEURONTE_HOME to a Neuronte checkout to run it" % why)
+        raise SystemExit(0)
+
 
 _TO_L = bytes.maketrans(b"#.", b"\x00\xff")
 
@@ -23,7 +29,7 @@ _TO_L = bytes.maketrans(b"#.", b"\x00\xff")
 def drawing(em, italic=False):
     """{char: (advance, rows)} from font/ui-EM.txt or its italic."""
     rows, ch = {}, None
-    path = os.path.join(ROOT, "font", "ui-%d%s.txt" % (em, "-italic" if italic else ""))
+    path = neuronte_face._path("font", "ui-%d%s.txt" % (em, "-italic" if italic else ""))
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             line = line.rstrip("\n")

@@ -15,12 +15,20 @@ import neuronte_face
 import theme as T
 from apps.wordpad import SIZES, _font
 from apps.charmap import BIG
-from neuronte_face_check import EMS, ITALIC, UPRIGHT, check
+from neuronte_face_check import EMS, ITALIC, UPRIGHT, check, require
 
 # The path the pty worker reopens is a real TrueType file.
 assert os.path.isfile(T.FONT.path), T.FONT.path
 reopened = ImageFont.truetype(T.FONT.path, 11)
 assert isinstance(reopened, ImageFont.FreeTypeFont)
+
+# Without Neuronte (no NEURONTE_HOME, as on an installed system) the chrome
+# keeps DejaVu; the rest of this test needs the Neuronte files.
+if neuronte_face._library() is None or 11 not in UPRIGHT:
+    for font in (T.FONT, T.BOLD, T.SMALL):
+        assert isinstance(font, ImageFont.FreeTypeFont), font
+require(neuronte_face._library() is not None and 11 in UPRIGHT,
+        "no Neuronte library or 11px weights")
 
 # Chrome sizes are the face. Bold is the same file, struck twice.
 assert isinstance(T.FONT, neuronte_face.NeuronteFont)

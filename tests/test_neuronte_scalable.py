@@ -8,8 +8,12 @@ import harness as H
 from PIL import Image, ImageDraw, ImageFont
 import neuronte_face as N
 import theme as T
+from neuronte_face_check import require
 
-sys.path.insert(0, os.path.join(N._ROOT, 'train'))
+require(N.open_size(33) is not None and N._library().has_stroke
+        and os.path.isfile(N._path('train', 'glyphs.py')),
+        'no Neuronte large weights or train/glyphs.py, or a library without strokes')
+sys.path.insert(0, N._path('train'))
 import glyphs
 
 for em in range(33, 257):

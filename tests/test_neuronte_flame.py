@@ -1,5 +1,6 @@
 """Flame crop, palette/alpha and fallback through the icon consumer."""
 import ctypes
+import os
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 import harness as H
@@ -7,6 +8,10 @@ from PIL import Image
 import icons
 import neuronte_flame as F
 import neuronte_face as N
+from neuronte_face_check import require
+
+require(N._library() is not None and os.path.isfile(N._path('weights', 'neuronte-flame-v0.nrt')),
+        'no Neuronte library or flame weights')
 
 for size in (16, 32):
     actual = icons.get('flame', size)

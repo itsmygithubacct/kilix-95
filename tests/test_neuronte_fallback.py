@@ -4,6 +4,11 @@ import harness as H
 from PIL import ImageFont, features
 import neuronte_face as N
 import theme as T
+from neuronte_face_check import require
+
+require(all(N.open_size(em, italic) for em, italic in ((11, False), (16, True), (64, False)))
+        and N._library().has_stroke,
+        "no Neuronte 11px, 16px italic or large weights, or a library without strokes")
 
 clusters = ('e\u0301', 'A\u0323\u0301B', '\u2764\ufe0f', '\U0001f1ec\U0001f1e7',
             '\U0001f469\u200d\U0001f4bb', 'fi\u200d', 'A\u00e9B')
