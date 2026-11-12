@@ -101,7 +101,7 @@ def model_records(assets, decisions, *, local_models=None):
             rows.append(command_record(
                 "llm-chat-no-loop", "LLM Chat (Qwen 0.8B no-loop)", "chat",
                 [binary, "chat", "--model-id", NO_LOOP_MODEL, "--model", weights,
-                 "--gpu-layers", "0", "--think"]))
+                 "--gpu-layers", "0"]))
             if avatar := executable("kilix-avatar", "KILIX_AVATAR_PREFIX"):
                 rows.append(command_record(
                     "avatar-no-loop", "Kilix Avatar (Qwen 0.8B no-loop)", "avatar",

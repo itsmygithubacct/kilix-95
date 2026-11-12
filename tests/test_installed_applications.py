@@ -53,7 +53,9 @@ def no_loop_gguf_adds_kilix_llm_chat_and_avatar_beside_existing_rows():
         chat, avatar = by_id["llm-chat-no-loop"], by_id["avatar-no-loop"]
         assert (chat["label"], chat["icon"]) == ("LLM Chat (Qwen 0.8B no-loop)", "chat")
         assert chat["argv"] == ("/bin/kilix-llm", "chat", "--model-id", "qwen-0.8b-no-loop-02",
-                                "--model", weights, "--gpu-layers", "0", "--think")
+                                "--model", weights, "--gpu-layers", "0")
+        # Thinking mode stays off: the 0.8B does worse with it (kilix-llm warns on --think).
+        assert "--think" not in chat["argv"] and "--think" not in avatar["argv"]
         assert (avatar["label"], avatar["icon"]) == ("Kilix Avatar (Qwen 0.8B no-loop)", "avatar")
         assert avatar["argv"] == ("/bin/kilix-avatar", "--chat", "--model", "qwen-0.8b-no-loop-02",
                                   "--model-file", weights)

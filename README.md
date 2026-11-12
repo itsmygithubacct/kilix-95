@@ -792,9 +792,11 @@ copy.
 
 When the model wizard has installed `qwen-0.8b-no-loop-02` and kilix-llm is
 installed, the desktop offers **LLM Chat (Qwen 0.8B no-loop)**, an interactive
-`kilix-llm chat` with thinking on, and **Kilix Avatar (Qwen 0.8B no-loop)**,
-Avatar's conversation with that model and thinking off. Both run on CPU from
-the installed file. The first start of either builds kilix-llm's CPU runtime
+`kilix-llm chat`, and **Kilix Avatar (Qwen 0.8B no-loop)**, Avatar's
+conversation with that model. Both run with thinking off, and on CPU from
+the installed file. The 0.8B does worse with thinking on, so the desktop never
+turns it on; `kilix-llm chat --model-id qwen-0.8b-no-loop-02 --think` still
+does, and prints kilix-llm's warning first. The first start of either builds kilix-llm's CPU runtime
 once, which takes a few minutes on a small CPU and does not fetch llama.cpp's
 web UI. `kilix-llm pull` refuses this model id; the wizard install delivers
 its licence notices. That model alone adds no Bonsai **LLM Chat** entry,
