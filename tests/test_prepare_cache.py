@@ -25,7 +25,8 @@ run('--prepare-cache')
 files = {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in prefix.rglob('*.pyc')}
 assert any(p.name.startswith('theme.') for p in files)
 assert any(p.name.startswith('wordpad.') for p in files)
-assert any(p.name.startswith('ImageDraw.') for p in files)
+# System modules keep the distribution's bytecode (test_system_bytecode.py).
+assert not any(p.name.startswith('ImageDraw.') for p in files)
 assert all(str(p).startswith(str(prefix) + os.sep) for p in files)
 # Preparing twice and launching again consume the existing bytecode. A source
 # update is invalidated by Python's normal mtime/size checks on the next prepare.

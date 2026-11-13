@@ -12,6 +12,23 @@ Usage:  kilix desktop                 (from inside kilix)
         main.py --screenshot out.png --scene start   (headless render, tests)
 Quit :  Start ▸ Shut Down…  ·  Ctrl+Alt+Q
 """
+import sys
+
+# Bytecode.  Kilix 95 and Kilix SDK modules keep their bytecode under a private
+# prefix (set below), so no __pycache__ appears in either source tree.  Python
+# has one prefix per process, though, and while it is set it also ignores the
+# bytecode Debian ships beside the standard library and dist-packages: a first
+# start recompiled about 200 of those files (about half a second).  So the
+# system modules start-up uses are imported first, with no prefix, from
+# Debian's own __pycache__.  The Kilix launcher passes PYTHONPYCACHEPREFIX,
+# which is why the prefix is cleared here rather than merely not yet set.  No
+# thread exists yet; the prefix is set once, before any project module, and
+# never changed again.  `main.py --prepare-cache` (bytecode.py) uses
+# _LAUNCH_MODULES: what the interpreter loaded before this file, under
+# whatever prefix it was started with.
+_LAUNCH_MODULES = tuple(sys.modules)
+sys.pycache_prefix = None
+
 import argparse
 import base64
 import fcntl
@@ -20,9 +37,65 @@ import select
 import shutil
 import signal
 import stat
-import sys
 import tempfile
 import time
+
+# Root imports, in start-up's own order, that load every system module an
+# interactive start imports before its first frame (measured with an empty
+# prefix; tests/test_system_bytecode.py fails when this falls behind
+# start-up, or when an entry is something start-up no longer imports).
+# Import errors are ignored here: start-up's own import, in its usual place,
+# then behaves exactly as it did before.
+_SYSTEM_MODULES = (
+    "json", "pathlib", "PIL.Image", "PIL.ImageDraw", "hashlib", "ctypes.util",
+    "mmap", "secrets", "socket", "dataclasses", "urllib.parse", "Xlib.X",
+    "Xlib.Xatom", "Xlib.display", "Xlib.ext.xfixes", "termios",
+    "unicodedata", "PIL.ImageChops", "PIL.ImageFont", "configparser",
+    "datetime", "ssl", "urllib.error", "urllib.request", "tarfile", "zipfile",
+    "uuid", "shlex", "calendar", "wave",
+    "concurrent.futures.thread", "importlib.resources._adapters", "tty",
+    "importlib.readers", "PIL.BmpImagePlugin", "PIL.GifImagePlugin",
+    "PIL.JpegImagePlugin", "PIL.PpmImagePlugin", "encodings.idna",
+    "PIL.PngImagePlugin",
+    # vbox.py's own import. PIL.Image imports it already when defusedxml is
+    # installed, so without that package nothing else does.
+    "xml.etree.ElementTree",
+)
+# Imported by PIL's FreeTypeFont() itself when theme opens the first font, in
+# the Pillow versions whose constructor checks the FreeType version that way
+# (11; 10 does not). Listed only when this Pillow's constructor names it.
+_FONT_MODULES = ("packaging.version",)
+
+
+def _font_modules():
+    try:
+        from PIL import ImageFont
+        used = ImageFont.FreeTypeFont.__init__.__code__.co_names
+    except Exception:
+        return []
+    return [name for name in _FONT_MODULES if name in used]
+
+
+def _import_system_modules():
+    names = list(_SYSTEM_MODULES)
+    if _FONT_MODULES:
+        names += _font_modules()
+    # Desk._run's condition for opening the host display: connecting imports
+    # these, plus python-xlib's module for each extension the server has.
+    if os.environ.get("KILIX_HOST_CLIP", "1") != "0" and \
+            os.environ.get("DISPLAY"):
+        names += ["Xlib.support.unix_connect", "Xlib.xauth", "platform"]
+        try:
+            from Xlib import ext as xlib_ext
+            names += ["Xlib.ext." + mod for _, mod in xlib_ext.__extensions__]
+        except Exception:
+            pass
+    for name in names:
+        try:
+            __import__(name)
+        except Exception:
+            pass
+
 
 _here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _here)
@@ -70,6 +143,7 @@ else:
     # dedicated bytecode leaf below it is tightened.
     os.makedirs(_cache_home, mode=0o700, exist_ok=True)
 _pycache = _private_bootstrap_dir(os.path.join(_cache_home, "pycache"))
+_import_system_modules()
 sys.pycache_prefix = _pycache
 
 import storage
@@ -1656,8 +1730,7 @@ def main():
     a = ap.parse_args()
     if a.prepare_cache:
         from prepare_cache import prepare
-        prepare(_here, KILIX_HOME)
-        return
+        sys.exit(prepare(_here, KILIX_HOME, _pycache, _LAUNCH_MODULES))
     # argparse exits above for --version/--help. Those informational paths must
     # work on a freshly installed system before a Kilix session has built its
     # native state library; every path that creates a desktop still fails here

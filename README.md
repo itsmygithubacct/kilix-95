@@ -691,6 +691,12 @@ Most user data can be reset independently:
   are user-authored.
 - Game installs are disposable caches, but `games.conf` records discovered or
   installed paths and should be kept if the user configured custom locations.
+- The bytecode cache holds only Kilix 95 and Kilix SDK bytecode, plus the few
+  modules Python loads before `main.py` runs. `main.py` imports the standard
+  library and dist-packages modules it needs before it sets the cache, so they
+  use the bytecode the distribution ships. Delete the cache freely: the next
+  start compiles again. `python3 main.py --prepare-cache` (see "Preparing an
+  installed desktop") fills it ahead of time.
 
 Tests rely on this separation. The harness sets `KILIX_DESKTOP_DIR` to a temp
 folder, which also isolates the default recycle bin beside that folder.
@@ -1263,10 +1269,13 @@ the final batch. The host must provide the matching model wizard backend.
 
 Run `python3 main.py --prepare-cache` as the desktop user, with the same
 storage environment and Python interpreter used to launch the desktop. It
-precompiles the application, SDK and imported dependencies into the private
-bytecode cache and finishes the two startup Neuronte letter caches. It opens
-no desktop and does not require a display or the native Kilix state library.
-Repeat it after source updates; clearing a cache is safe and normal startup
-rebuilds it. Neuronte desktop placement comes from `font/ui-tops.json` in the
+compiles this checkout (not `tests/` or `tools/`), the Kilix SDK and the
+package trees the SDK pins into the private bytecode cache, applications
+included, and finishes the two startup Neuronte letter caches. System modules
+keep the distribution's bytecode. It opens no desktop and does not require a
+display or the native Kilix state library. It rewrites only stale files, so
+repeat it after source updates; it refuses to run as root and exits 1 if a
+file failed to compile. Clearing a cache is safe and normal startup rebuilds
+it. Neuronte desktop placement comes from `font/ui-tops.json` in the
 selected runtime tree. Older trees without it need placement in their drawing
 headers; a face without either uses DejaVu.
