@@ -17,8 +17,14 @@ from apps.manual import _ReadOnlyTextArea
 class ModelWizard(wm.Window):
     ROWS = 5
 
-    def __init__(self, desk):
+    def __init__(self, desk, startup=False):
         super().__init__(desk, 'Model setup', 650, 440, icon='speak', resizable=False)
+        # At start-up a window with nothing to do closes; from the menu it
+        # stays, so saved choices can be changed.
+        self.startup = startup
+        # Change choices: every page again, saved answers included.
+        self.revisit = False
+        self.changed = set()
         self.pages = []
         self.index = 0
         self.offset = 0
@@ -35,16 +41,19 @@ class ModelWizard(wm.Window):
         except (OSError, ValueError):
             pass
         self._closed = False
+        self.discover()
+        self.desk.tick_hooks.append(self.refresh)
+        self.on_close = self.cleanup
+
+    def discover(self):
         try:
-            self.future = Discovery()
+            self.future = Discovery(include_answered=True) if self.revisit else Discovery()
         except Exception as error:
             # Present and log startup errors through the ordinary failure path.
             self.future = Future()
             self.future.set_exception(error)
         self.add(W.Label(18, 20, 'Checking available models and sizing recommendations…'))
         self.add(W.Button(510, 365, 110, 26, 'Later', cb=self.close))
-        self.desk.tick_hooks.append(self.refresh)
-        self.on_close = self.cleanup
 
     @property
     def page(self):
@@ -98,7 +107,8 @@ class ModelWizard(wm.Window):
         self.recommendation.set_text('\n'.join(wm._wrap_text(
             page['recommendation'], self.recommendation.font,
             self.recommendation.text_viewport()[2])))
-        self.add(W.Label(18, 99, 'Check the models to install. The recommended/default model starts checked.'))
+        self.add(W.Label(18, 99, 'Your saved choice starts checked. Continue keeps it.' if self.revisit else
+                         'Check the models to install. The recommended/default model starts checked.'))
         self.checks = []
         for position, row in enumerate(page['models'][self.offset:self.offset + self.ROWS]):
             y = 124 + position * 37
@@ -128,11 +138,13 @@ class ModelWizard(wm.Window):
         self.invalidate()
 
     def update_controls(self):
-        answered = backend.answers().get(self.page['id'], {}).get('answer') in ('yes', 'no')
+        saved = backend.answers().get(self.page['id'], {}).get('answer') in ('yes', 'no')
+        # When changing choices, a page counts as answered once changed here.
+        answered = self.page['id'] in self.changed if self.revisit else saved
         busy = self.job is not None
         self.accept_button.enabled = bool(self.selected) and not busy and not answered
         self.decline_button.enabled = not busy and not answered
-        self.continue_button.enabled = answered and not busy
+        self.continue_button.enabled = (answered or self.revisit and saved) and not busy
         for checkbox in self.checks:
             checkbox.enabled = not busy and not answered
         if not answered and not busy and not self.error:
@@ -143,7 +155,8 @@ class ModelWizard(wm.Window):
             self.status.set(f'Selected: {backend.size_text(download)} download; up to {backend.size_text(peak)} disk.'
                             + (f' Free: {backend.size_text(free)}.' if free is not None else ''))
         if answered and not self.error:
-            self.status.set('Choice saved. Choose Continue for the next unanswered page.')
+            self.status.set('Choice saved. Choose Continue for the next page.' if self.revisit else
+                            'Choice saved. Choose Continue for the next unanswered page.')
         self.invalidate()
 
     def toggle(self, key, checked):
@@ -163,6 +176,7 @@ class ModelWizard(wm.Window):
             selected.remove(self.page['default']); selected.insert(0, self.page['default'])
         try:
             backend.apply(self.page['id'], selected, 'yes')
+            self.changed.add(self.page['id'])
             self.error = ''
         except Exception as error:
             self.report_failure(error, 'save model choice')
@@ -189,8 +203,26 @@ class ModelWizard(wm.Window):
         self.review_button = self.add(W.Button(18, 350, 235, 28, 'Review licences and install', cb=self.start_batch))
         self.review_button.enabled = bool(plans) and self.job is None
         self.finish_button = self.add(W.Button(280, 350, 130, 28, 'Finish' if not plans else 'Later', cb=self.close))
+        self.change_button = self.add(W.Button(425, 350, 150, 28, 'Change choices', cb=self.change_choices))
+        self.change_button.enabled = self.job is None
         if not plans and not self.error: self.status.set('All model setup choices are complete.')
         self.invalidate()
+
+    def change_choices(self):
+        """Reopen every page with its saved answer, so any choice can change."""
+        if self.job or self.future is not None: return
+        for widget in list(self.widgets): self.remove(widget)
+        self.batch, self.revisit, self.changed = False, True, set()
+        self.pages, self.index, self.offset, self.error = [], 0, 0, ''
+        self.discover()
+        self.invalidate()
+
+    def initial_selection(self):
+        saved = backend.answers().get(self.page['id'], {})
+        if self.revisit and saved.get('answer') in ('yes', 'no'):
+            offered = {row['id'] for row in self.page['models']}
+            return set(saved.get('models', [])) & offered if saved['answer'] == 'yes' else set()
+        return {self.page['default']} if self.page['default'] else set()
 
     def start_batch(self):
         if self.job or not backend.pending(): return
@@ -218,6 +250,7 @@ class ModelWizard(wm.Window):
         if not self.decline_button.enabled: return
         try:
             backend.apply(self.page['id'], [], 'no')
+            self.changed.add(self.page['id'])
             self.error = ''
             self.sync_controllers()
         except Exception as error:
@@ -240,13 +273,14 @@ class ModelWizard(wm.Window):
         if not self.continue_button.enabled: return
         decisions = backend.answers()
         self.index += 1
-        while self.index < len(self.pages) and decisions.get(self.page['id'], {}).get('answer') in ('yes', 'no'):
+        while not self.revisit and self.index < len(self.pages) \
+                and decisions.get(self.page['id'], {}).get('answer') in ('yes', 'no'):
             self.index += 1
         if self.index == len(self.pages):
             self.error = ''
             self.show_batch()
             return
-        self.selected = {self.page['default']} if self.page['default'] else set()
+        self.selected = self.initial_selection()
         self.offset = 0
         self.error = ''
         self.show_page()
@@ -260,10 +294,10 @@ class ModelWizard(wm.Window):
             try:
                 self.pages = future.result()
                 if not self.pages:
-                    if backend.pending(): self.show_batch()
+                    if backend.pending() or not self.startup: self.show_batch()
                     else: self.close()
                     return
-                self.selected = {self.page['default']} if self.page['default'] else set()
+                self.selected = self.initial_selection()
                 self.show_page()
             except Exception as error:
                 self.report_failure(error, 'load model setup',
@@ -333,12 +367,12 @@ class ModelWizard(wm.Window):
                 future.cancel()
 
 
-def open_window(desk):
+def open_window(desk, startup=False):
     for window in desk.wm.windows:
         if isinstance(window, ModelWizard):
             desk.wm.activate(window)
             return window
-    window = ModelWizard(desk)
+    window = ModelWizard(desk, startup)
     desk.wm.add(window)
     return window
 
@@ -356,6 +390,6 @@ def startup(desk):
     if enabled:
         if not desk.shell.state.get('wallpaper_offer_answered', False):
             from apps.wallpaperoffer import open_window as offer_wallpaper
-            offer_wallpaper(desk, lambda: open_window(desk))
+            offer_wallpaper(desk, lambda: open_window(desk, startup=True))
         else:
-            open_window(desk)
+            open_window(desk, startup=True)
