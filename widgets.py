@@ -921,8 +921,10 @@ class IconGrid(Widget):
         self._selection_anchor = None
         self.label_fg = T.LIGHT if desktop else T.TEXT
         self.bg = None if desktop else T.WINDOW_BG
+        self._label_layouts = {}
 
     def set_items(self, items, preserve=False):
+        self._label_layouts = {}      # drop the old folder's labels
         old = self.items
         if preserve:
             def key(item):
@@ -1034,10 +1036,8 @@ class IconGrid(Widget):
                         px[xx, yy] = (T.SEL_BG[0], T.SEL_BG[1], T.SEL_BG[2], a)
             img.paste(tint, (ix, cy + 2), tint)
         label = it.get("label", "")
-        lines = self._wrap(label)
         ty = cy + 2 + T.ICON + 3
-        for ln in lines:
-            tw = T.text_w(T.FONT, ln)
+        for ln, tw in self._label_layout(label):
             tx = cx + (T.CELL_W - tw) // 2
             if selected:
                 d.rectangle([tx - 2, ty - 1, tx + tw + 1, ty + 12],
@@ -1047,6 +1047,18 @@ class IconGrid(Widget):
             d.text((tx, ty), ln, font=T.FONT,
                    fill=T.SEL_TX if selected else self.label_fg)
             ty += 13
+
+    def _label_layout(self, label):
+        """[(line, width)] for one label, measured once per font, cell
+        width and label. The desktop repaints on every pointer report, and
+        wrapping a long label measures it once per character."""
+        key = (T.FONT, T.CELL_W, label)
+        layout = self._label_layouts.get(key)
+        if layout is None:
+            layout = tuple((ln, T.text_w(T.FONT, ln))
+                           for ln in self._wrap(label))
+            self._label_layouts[key] = layout
+        return layout
 
     def _wrap(self, label):
         maxw = T.CELL_W - 6
