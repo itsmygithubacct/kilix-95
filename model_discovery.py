@@ -10,7 +10,7 @@ from owned_job import OwnedJob
 
 
 class Discovery:
-    def __init__(self, directory=None):
+    def __init__(self, directory=None, include_answered=False):
         if directory is None:
             from model_wizard import new_run_directory
             directory = new_run_directory()
@@ -22,7 +22,8 @@ class Discovery:
             fd = os.open(self.log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, 'wb') as diagnostic:
                 self.process = OwnedJob(
-                    [sys.executable, str(Path(__file__).resolve()), '--worker'],
+                    [sys.executable, str(Path(__file__).resolve()), '--worker']
+                    + (['--all'] if include_answered else []),
                     stdin=subprocess.DEVNULL, stdout=self.output,
                     stderr=diagnostic,
                     env=dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path)))
@@ -60,14 +61,15 @@ class Discovery:
         self.closed = True
 
 
-def discover():
+def discover(include_answered=False):
     import model_wizard as backend
     # Backend notices must not contaminate the structured response.
     from contextlib import redirect_stdout
     with redirect_stdout(sys.stderr):
-        pages = backend.pages(ensure_sizer=True)
+        pages = (backend.pages(include_answered=True, ensure_sizer=True) if include_answered
+                 else backend.pages(ensure_sizer=True))
     json.dump(pages, sys.stdout)
 
 
 if __name__ == '__main__':
-    discover()
+    discover('--all' in sys.argv[1:])
