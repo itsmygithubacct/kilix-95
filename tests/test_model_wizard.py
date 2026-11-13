@@ -72,6 +72,10 @@ with H.desktop_dir(), patch.object(backend, 'catalog', return_value=ASSETS), \
         window.start_batch()
     command = terminal.call_args.args[1]
     assert 'finish' in command and '--result' in command
+    # A run that asked no licence question stopped at the microphone one.
+    assert window.error == 'Answer the questions in the desktop terminal; downloads follow.'
+    shown = ' '.join(w.text for w in window.widgets if isinstance(w, W.Label))
+    assert 'licences and the dictation microphone, then downloads' in shown
     result = window.job[1]
     run_directory = Path(result).parent
     error_log = str(run_directory / 'error.log')

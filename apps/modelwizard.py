@@ -179,7 +179,8 @@ class ModelWizard(wm.Window):
         self.text(f'{count} selected models await installation. '
                   'Standard licences are handled automatically. Additional terms '
                   'ask for agreement; declining skips the affected models.', 55, limit=5)
-        self.text('The agreement terminal opens as a box inside this desktop. '
+        self.text('The setup terminal opens as a box inside this desktop. It asks its '
+                  'questions first, licences and the dictation microphone, then downloads. '
                   'Closing it leaves unfinished setup available for retry.', 155, limit=3)
         self.text(self.error, 215, limit=3)
         if self.log_path:
@@ -204,7 +205,8 @@ class ModelWizard(wm.Window):
             self.report_failure(error, 'start installer', locals().get('directory'))
         else:
             self.job = (directory, result, time.monotonic())
-            self.error = 'Answer the grouped licence questions in the desktop terminal.'
+            # Not only licences: the terminal also asks about the microphone.
+            self.error = 'Answer the questions in the desktop terminal; downloads follow.'
         self.show_batch()
 
     def report_failure(self, error, phase, directory=None):
