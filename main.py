@@ -23,7 +23,10 @@ import sys
 # Debian's own __pycache__.  The Kilix launcher passes PYTHONPYCACHEPREFIX,
 # which is why the prefix is cleared here rather than merely not yet set.  No
 # thread exists yet; the prefix is set once, before any project module, and
-# never changed again.
+# never changed again.  `main.py --prepare-cache` (bytecode.py) uses
+# _LAUNCH_MODULES: what the interpreter loaded before this file, under
+# whatever prefix it was started with.
+_LAUNCH_MODULES = tuple(sys.modules)
 sys.pycache_prefix = None
 
 import argparse
@@ -1709,8 +1712,7 @@ def main():
     a = ap.parse_args()
     if a.prepare_cache:
         from prepare_cache import prepare
-        prepare(_here, KILIX_HOME)
-        return
+        sys.exit(prepare(_here, KILIX_HOME, _pycache, _LAUNCH_MODULES))
     # argparse exits above for --version/--help. Those informational paths must
     # work on a freshly installed system before a Kilix session has built its
     # native state library; every path that creates a desktop still fails here
