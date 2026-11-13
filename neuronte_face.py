@@ -154,8 +154,15 @@ def _write_private(path, data):
     try:
         fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".",
                                    suffix=".tmp", dir=os.path.dirname(path))
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
+        try:
+            offset = 0
+            while offset < len(data):
+                count = os.write(fd, data[offset:])
+                if count <= 0:
+                    raise OSError("cache write made no progress")
+                offset += count
+        finally:
+            os.close(fd)
         os.replace(tmp, path)
         return True
     except OSError:

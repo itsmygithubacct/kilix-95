@@ -9,6 +9,7 @@ saves again. A cache that cannot be written changes no pixel.
 """
 import atexit
 import ctypes
+import glob
 import hashlib
 import os
 import random
@@ -334,6 +335,34 @@ os.unlink(path)
 os.symlink(outside, path)
 falls_back("symlink")
 assert open(outside, "rb").read() == data
+
+
+# A short write must finish before replacing the old file. An error after
+# a partial write, or a write that makes no progress, keeps the old file.
+write_path = os.path.join(ROOT, "short-write.bin")
+write = os.write
+try:
+    os.write = lambda fd, chunk: write(fd, chunk[:7])
+    assert N._write_private(write_path, data)
+    assert open(write_path, "rb").read() == data
+
+    writes = [0]
+
+    def full_disk(fd, chunk):
+        writes[0] += 1
+        if writes[0] > 1:
+            raise OSError("disk full")
+        return write(fd, chunk[:7])
+
+    os.write = full_disk
+    assert not N._write_private(write_path, data + b"changed")
+    assert open(write_path, "rb").read() == data
+    os.write = lambda fd, chunk: 0
+    assert not N._write_private(write_path, data + b"changed")
+    assert open(write_path, "rb").read() == data
+    assert not glob.glob(write_path + ".*.tmp")
+finally:
+    os.write = write
 
 
 # Read-only cache. The cache folder cannot be made: no path, nothing
