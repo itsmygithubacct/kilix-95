@@ -57,6 +57,9 @@ _SYSTEM_MODULES = (
     "importlib.readers", "PIL.BmpImagePlugin", "PIL.GifImagePlugin",
     "PIL.JpegImagePlugin", "PIL.PpmImagePlugin", "encodings.idna",
     "PIL.PngImagePlugin",
+    # vbox.py's own import. PIL.Image imports it already when defusedxml is
+    # installed, so without that package nothing else does.
+    "xml.etree.ElementTree",
 )
 
 
