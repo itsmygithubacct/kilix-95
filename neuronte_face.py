@@ -228,7 +228,12 @@ def _write_private(path, data):
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         try:
-            os.write(fd, data)
+            offset = 0
+            while offset < len(data):
+                count = os.write(fd, data[offset:])
+                if count <= 0:
+                    raise OSError("cache write made no progress")
+                offset += count
         finally:
             os.close(fd)
         os.replace(tmp, path)
