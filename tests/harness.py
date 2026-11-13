@@ -182,3 +182,61 @@ def term_feed(data, chunks=None):
     finally:
         os.close(t.fd)
         os.close(w)
+
+
+# ── text measuring counter ──────────────────────────────────────────────────
+
+class Measures:
+    """Count font measuring calls (getlength/getbbox on the theme's faces),
+    not those nested inside ImageDraw.text or another measuring call: what
+    the tab benchmark's probe counts as text measuring.
+
+        with H.Measures() as m:
+            ...
+        assert m.n == 0
+    """
+
+    def __init__(self):
+        self.n = 0
+        self._depth = 0
+        self._saved = []
+
+    def __enter__(self):
+        import theme as T
+        from PIL import ImageDraw
+        self.n = 0
+        for cls in {type(f) for f in (T.FONT, T.BOLD, T.SMALL)}:
+            for name in ("getlength", "getbbox"):
+                orig = getattr(cls, name, None)
+                if orig is not None:
+                    self._saved.append((cls, name, orig))
+                    setattr(cls, name, self._counted(orig))
+        text = ImageDraw.ImageDraw.text
+        self._saved.append((ImageDraw.ImageDraw, "text", text))
+        ImageDraw.ImageDraw.text = self._nested(text)
+        return self
+
+    def __exit__(self, *exc):
+        for cls, name, orig in reversed(self._saved):
+            setattr(cls, name, orig)
+        self._saved = []
+
+    def _counted(self, orig):
+        def measure(font, *a, **k):
+            if not self._depth:
+                self.n += 1
+            self._depth += 1
+            try:
+                return orig(font, *a, **k)
+            finally:
+                self._depth -= 1
+        return measure
+
+    def _nested(self, orig):
+        def text(draw, *a, **k):
+            self._depth += 1
+            try:
+                return orig(draw, *a, **k)
+            finally:
+                self._depth -= 1
+        return text

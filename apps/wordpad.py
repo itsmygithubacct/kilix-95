@@ -564,7 +564,10 @@ class RichTextArea(W.Widget):
             self.sb.clamp()
             self.invalidate()
             return True
-        pi, off = self._hit(lx, ly)
+        if (ev.press and ev.btn == 1) or (ev.move and (ev.btn & 1)):
+            # _hit measures every caret position on the line; a buttonless
+            # hover uses none of them.
+            pi, off = self._hit(lx, ly)
         if ev.press and ev.btn == 1:
             self._move(pi, off, ev.shift)
             if not ev.shift:

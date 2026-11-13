@@ -686,9 +686,13 @@ class TextArea(Widget):
             self.sb.clamp()
             self.invalidate()
             return True
-        row = self.sb.pos + max(0, (ly - 3) // self.LH)
-        row = min(row, len(self.lines) - 1)
-        col = self._col_at(row, lx - 4 + self.hx)
+        if (ev.press and ev.btn == 1) or (ev.move and (ev.btn & 1)):
+            # Only a left press or a left drag places the caret. _col_at
+            # measures one prefix per character, so a buttonless hover over
+            # a long line must not pay for a column it would throw away.
+            row = self.sb.pos + max(0, (ly - 3) // self.LH)
+            row = min(row, len(self.lines) - 1)
+            col = self._col_at(row, lx - 4 + self.hx)
         if ev.press and ev.btn == 1:
             self._move(row, col, ev.shift)
             if not ev.shift:
