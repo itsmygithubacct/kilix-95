@@ -1258,3 +1258,15 @@ Declined groups are skipped. Interrupted installation remains available to
 retry. The same choices are accessible through `kilix wizard` in a terminal;
 `kilix wizard --all` revisits answered pages and `kilix wizard finish` resumes
 the final batch. The host must provide the matching model wizard backend.
+
+## Preparing an installed desktop
+
+Run `python3 main.py --prepare-cache` as the desktop user, with the same
+storage environment and Python interpreter used to launch the desktop. It
+precompiles the application, SDK and imported dependencies into the private
+bytecode cache and finishes the two startup Neuronte letter caches. It opens
+no desktop and does not require a display or the native Kilix state library.
+Repeat it after source updates; clearing a cache is safe and normal startup
+rebuilds it. Neuronte desktop placement comes from `font/ui-tops.json` in the
+selected runtime tree. Older trees without it need placement in their drawing
+headers; a face without either uses DejaVu.

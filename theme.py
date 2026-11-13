@@ -15,6 +15,7 @@ A size or style with no file uses the TrueType
 fallback: a .ttf in assets/fonts/ (gitignored) if you supply one, otherwise
 DejaVu Sans, or DejaVu Sans Oblique for italic.
 """
+import atexit
 import os
 import time
 
@@ -279,8 +280,11 @@ def _remeasure_chrome():
 
 
 _remeasure_chrome()
-# The first frame's letters, drawn while the rest of start-up runs.
+# The first frame's letters come from the cells file. On a first start they
+# are drawn while the rest of start-up runs, and saved. Sizes opened later
+# are saved when the desktop ends.
 neuronte_face.start_letters((FONT, SMALL))
+atexit.register(neuronte_face.save_letters)
 
 
 def _blend(a, b, t):
