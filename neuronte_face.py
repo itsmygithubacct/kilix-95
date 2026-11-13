@@ -10,10 +10,9 @@ does not cover is measured and drawn with DejaVu, so the two faces are
 never mixed on one line.
 
 ``UI_TOP`` is the cell row where the em bitmap starts; the italic of an em
-starts on the same row. It is the table in ``train/glyphs.py``, which is a
-small rule there, so the assignments it needs are run on their own, with
-no imports. The baseline row inside the em, and the baseline's cell row
-when the drawing records one, are read from the face file's header. PIL
+starts on the same row. It is read from the generated ``font/ui-tops.json``
+table. The baseline row inside the em, and the baseline's cell row when
+the drawing records one, are read from the face file's header.
 A small face keeps one binary cell per character in memory, drawn once by
 the net: a string is those cells laid at the pen. The cells are also kept
 in the Kilix 95 cache, one file per em and slant, named by the bytes of the
@@ -27,7 +26,6 @@ the same mask shifted up by the baseline row.
 """
 
 import array
-import ast
 import ctypes
 import hashlib
 import json
@@ -37,6 +35,7 @@ import re
 import stat
 import struct
 import threading
+import tempfile
 import time
 
 from PIL import Image, ImageChops, ImageFont
@@ -118,127 +117,55 @@ def _load_library():
     return _lib
 
 
-# What the UI_TOP assignments in glyphs.py may call. Nothing else is
-# reachable from the code run below: no imports, no open, no __import__.
-_TOP_BUILTINS = {"range": range, "round": round, "int": int, "len": len,
-                 "min": min, "max": max, "abs": abs, "dict": dict}
-
-
-def _eval_tops(text, path):
-    """{em: row} from glyphs.py's UI_TOP, running only what it names.
-
-    The top-level assignments and functions UI_TOP refers to, directly or
-    through each other, are run in source order. A literal table needs none.
-    """
-    tree = ast.parse(text, path)
-    defs = {}
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef):
-            defs[node.name] = node
-        elif (isinstance(node, ast.Assign) and len(node.targets) == 1
-              and isinstance(node.targets[0], ast.Name)):
-            defs[node.targets[0].id] = node
-    need, todo = set(), ["UI_TOP"]
-    while todo:
-        name = todo.pop()
-        if name in need or name not in defs:
-            continue
-        need.add(name)
-        todo += [n.id for n in ast.walk(defs[name]) if isinstance(n, ast.Name)]
-    if "UI_TOP" not in need:
-        return {}
-    picked = {id(defs[name]) for name in need}
-    body = [node for node in tree.body if id(node) in picked]
-    scope = {"__builtins__": dict(_TOP_BUILTINS)}
-    exec(compile(ast.Module(body=body, type_ignores=[]), path, "exec"), scope)
-    tops = scope.get("UI_TOP")
-    if not isinstance(tops, dict):
-        return {}
-    return {int(em): int(row) for em, row in tops.items()}
-
-
 def _ui_tops():
+    """Read generated placement data without importing or evaluating training code.
+
+    An older checkout can still provide placement in each drawing's header.
+    Missing or invalid metadata leaves those headers (or DejaVu) in control.
+    """
     global _tops
     if _tops is not None:
         return _tops
-    path = _path("train", "glyphs.py")
+    _tops = {}
     try:
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError:
-        return {}
-    cached = _tops_cache_path(text)
-    table = _read_tops(cached)
-    if table is not None:
-        _tops = table
-        return _tops
-    try:
-        _tops = _eval_tops(text, path)
-    except Exception:
-        # A rule this cannot run leaves the headers to say where the em sits.
-        _tops = {}
-    if cached and _tops:
-        _write_private(cached, json.dumps(_tops, sort_keys=True).encode())
+        with open(_path("font", "ui-tops.json"), "rb") as fh:
+            raw = fh.read(65537)
+        if len(raw) > 65536:
+            return _tops
+        data = json.loads(raw)
+        if data.get("schema") != "neuronte.ui-tops/v1":
+            return _tops
+        table = data["tops"]
+        expected = {str(em) for em in range(1, 129) if em != 44}
+        if not isinstance(table, dict) or table.keys() != expected:
+            return _tops
+        if not all(type(row) is int and 0 <= row <= 2 * int(em)
+                   for em, row in table.items()):
+            return _tops
+        _tops = {int(em): row for em, row in table.items()}
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        pass
     return _tops
-
-
-# Parsing glyphs.py costs about 20 ms at every start for a table of small
-# numbers. The table is kept in the Kilix 95 cache under the sha256 of the
-# source it came from, so an edited glyphs.py never reads an old table.
-_TOPS_FORMAT = 1
-
-
-def _tops_cache_path(text):
-    try:
-        import storage
-        folder = storage.private_dir(storage.cache_dir("neuronte"))
-    except Exception:
-        return ""
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    return os.path.join(folder, "ui-tops-%d-%s.json" % (_TOPS_FORMAT, digest))
-
-
-def _read_tops(path):
-    """The cached table, or None when it is absent or not a table."""
-    if not path:
-        return None
-    try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
-        return None
-    try:
-        info = os.fstat(fd)
-        if info.st_uid != os.geteuid() or info.st_size > 65536:
-            return None
-        table = json.loads(os.read(fd, 65537))
-        tops = {int(em): int(row) for em, row in table.items()}
-    except (OSError, ValueError, TypeError, AttributeError):
-        return None
-    finally:
-        os.close(fd)
-    if not tops or not all(1 <= em <= 4096 and 0 <= row <= 8192
-                           for em, row in tops.items()):
-        return None
-    return tops
 
 
 def _write_private(path, data):
     """Atomic 0600 write. A read-only or full cache is not an error."""
-    tmp = "%s.%d.tmp" % (path, os.getpid())
+    tmp = None
     try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        try:
-            os.write(fd, data)
-        finally:
-            os.close(fd)
+        fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".",
+                                   suffix=".tmp", dir=os.path.dirname(path))
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
         os.replace(tmp, path)
         return True
     except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
         return False
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def _read_private(path, limit):

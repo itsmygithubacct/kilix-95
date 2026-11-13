@@ -1638,6 +1638,8 @@ def main():
     ap = argparse.ArgumentParser(prog="kilix desktop")
     ap.add_argument("--version", action="version",
                     version="kilix-95 " + _version())
+    ap.add_argument("--prepare-cache", action="store_true",
+                    help="prepare this user's bytecode and font caches without opening a desktop")
     ap.add_argument("--cursor", dest="cursor", action="store_true",
                     default=True, help=argparse.SUPPRESS)   # legacy (now default)
     ap.add_argument("--no-cursor", dest="cursor", action="store_false",
@@ -1652,6 +1654,10 @@ def main():
     ap.add_argument("--size", default="1024x768",
                     help="screenshot size WxH")
     a = ap.parse_args()
+    if a.prepare_cache:
+        from prepare_cache import prepare
+        prepare(_here, KILIX_HOME)
+        return
     # argparse exits above for --version/--help. Those informational paths must
     # work on a freshly installed system before a Kilix session has built its
     # native state library; every path that creates a desktop still fails here

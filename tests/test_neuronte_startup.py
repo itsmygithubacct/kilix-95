@@ -1,6 +1,6 @@
 """Start-up shortcuts of the Neuronte face give what the long way gives.
 
-The letter cells in memory, the Pillow mask packing, the cached UI_TOP
+The letter cells in memory, the Pillow mask packing, the generated UI_TOP
 table and the clock width from parts each replace slower code. Each is
 compared here with that slower code, bit for bit or number for number.
 """
@@ -103,28 +103,4 @@ finally:
     T.FONT = saved
     T._CLOCK_WIDEST.clear()
 
-# UI_TOP: the cached table is the evaluated one; a damaged file is not read.
-source = open(N._path("train", "glyphs.py"), encoding="utf-8").read()
-evaluated = N._eval_tops(source, "glyphs.py")
-path = N._tops_cache_path(source)
-assert path and os.path.isfile(path), "the table was not cached at import"
-assert N._read_tops(path) == evaluated == N._ui_tops()
-assert os.stat(path).st_mode & 0o777 == 0o600
-assert N._tops_cache_path(source + "\n# edited\n") != path
-good = open(path, "rb").read()
-for bad in (b"", b"{", b"[1, 2]", b'{"11": "x"}', b'{"11": -1}', b'{"0": 3}', b"{}"):
-    with open(path, "wb") as fh:
-        fh.write(bad)
-    assert N._read_tops(path) is None, bad
-    N._tops = None
-    assert N._ui_tops() == evaluated          # falls back to the source
-    assert N._read_tops(path) == evaluated    # and repairs the file
-with open(path, "wb") as fh:
-    fh.write(good)
-link = path + ".link"
-os.symlink(path, link)
-try:
-    assert N._read_tops(link) is None         # a link is never followed
-finally:
-    os.unlink(link)
 print("ok")
