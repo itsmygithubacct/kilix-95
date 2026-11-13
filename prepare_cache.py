@@ -5,8 +5,9 @@ an update, writes what a first start would otherwise build: the Kilix 95 and
 Kilix SDK bytecode (bytecode.py: this checkout, the SDK and the packages it
 pins, whole, so applications open without compiling either) and the two
 start-up Neuronte letter caches. System modules are not compiled: main.py
-loads them from the bytecode the distribution ships. Exit status 0 when both
-are written, 1 when a file could not be compiled, 2 when run as root.
+loads them from the bytecode the distribution ships. Bytecode whose source is
+gone is pruned. Exit status 0 when both are written, 1 when a file could not
+be compiled, 2 when run as root.
 """
 import os
 import sys

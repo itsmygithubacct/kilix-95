@@ -1274,8 +1274,10 @@ package trees the SDK pins into the private bytecode cache, applications
 included, and finishes the two startup Neuronte letter caches. System modules
 keep the distribution's bytecode. It opens no desktop and does not require a
 display or the native Kilix state library. It rewrites only stale files, so
-repeat it after source updates; it refuses to run as root and exits 1 if a
-file failed to compile. Clearing a cache is safe and normal startup rebuilds
+repeat it after source updates. It also removes cached bytecode whose source
+file no longer exists, so the cache does not grow with every update that
+moves or removes a module. It refuses to run as root and exits 1 if a file
+failed to compile. Clearing a cache is safe and normal startup rebuilds
 it. Neuronte desktop placement comes from `font/ui-tops.json` in the
 selected runtime tree. Older trees without it need placement in their drawing
 headers; a face without either uses DejaVu.

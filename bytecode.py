@@ -24,10 +24,23 @@ is cheap.  Files are replaced atomically, so a desktop starting meanwhile
 reads the old file or the new one.  A file that cannot be compiled is named
 on stderr and makes the result 1; the installer treats that as a warning,
 since the desktop compiles whatever is missing itself.
+
+Then the prefix is pruned, so it does not grow with every update that moves
+or removes a module.  Only a file this step understands is deleted:
+  * a .pyc (any Python version, any optimization level) whose source file no
+    longer exists;
+  * a temporary file left by an interrupted atomic write (<name>.pyc.<digits>)
+    older than an hour, so a write in progress is never touched;
+then directories left empty.  Symlinks are never followed or removed, and
+other files are left alone.  A file that cannot be removed is named on
+stderr but does not change the result: a stale file is never read.
 """
 import os
+import re
+import stat
 import sys
 import threading
+import time
 
 # py_compile is not a start-up import.  Load it from Debian's bytecode, as
 # main.py does for start-up's own system modules, rather than leave a copy
@@ -135,6 +148,56 @@ def compile_all(sources):
     return written, current, failed
 
 
+# <module>.<cache tag>.pyc or <module>.<cache tag>.opt-<n>.pyc
+_PYC = re.compile(r"(?P<stem>[^.]+)\.[A-Za-z0-9_-]+(?:\.opt-[0-9]*)?\.pyc")
+# importlib's atomic write: <final name>.<id of the path object>
+_TEMP = re.compile(r".+\.pyc\.[0-9]+")
+TEMP_AGE = 3600
+
+
+def _source_of(prefix, directory, name):
+    match = _PYC.fullmatch(name)
+    if match is None:
+        return None
+    relative = os.path.relpath(directory, prefix)
+    parent = os.sep if relative == os.curdir else os.path.join(os.sep, relative)
+    return os.path.join(parent, match.group("stem") + ".py")
+
+
+def prune(prefix, now=None):
+    """Remove stale files under prefix; returns (removed, failures)."""
+    now = time.time() if now is None else now
+    removed, failures = 0, []
+    for directory, dirs, files in os.walk(prefix, topdown=False):
+        for name in files:
+            path = os.path.join(directory, name)
+            try:
+                st = os.lstat(path)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue                     # a symlink or a special file
+            source = _source_of(prefix, directory, name)
+            if source is not None:
+                stale = not os.path.isfile(source)
+            else:
+                stale = bool(_TEMP.fullmatch(name)) and now - st.st_mtime > TEMP_AGE
+            if not stale:
+                continue
+            try:
+                os.unlink(path)
+                removed += 1
+            except OSError as error:
+                failures.append((path, error))
+        if os.path.normpath(directory) != os.path.normpath(prefix):
+            try:
+                if not os.path.islink(directory) and not os.listdir(directory):
+                    os.rmdir(directory)
+            except OSError:
+                pass
+    return removed, failures
+
+
 def compile_desktop(prefix, here, kilix_home, launch_modules):
     """Compile everything listed above into prefix; 0, or 1 if anything failed."""
     if not prefix or sys.pycache_prefix != prefix:
@@ -158,6 +221,11 @@ def compile_desktop(prefix, here, kilix_home, launch_modules):
     written, current, failed = compile_all(unique)
     for source, error in failed:
         print(f"kilix-95 bytecode: {source}: {error}", file=sys.stderr)
+    removed, kept = prune(prefix)
+    for path, error in kept:
+        print(f"kilix-95 bytecode: could not prune {path}: {error}",
+              file=sys.stderr)
     print(f"kilix-95 bytecode: {len(unique)} files, {written} written, "
-          f"{current} already current, {len(failed)} failed ({prefix})")
+          f"{current} already current, {len(failed)} failed, "
+          f"{removed} pruned ({prefix})")
     return 1 if failed or None in sources else 0
