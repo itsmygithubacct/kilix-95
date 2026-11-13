@@ -29,9 +29,18 @@ import threading
 
 from PIL import Image, ImageFont
 
-# A Neuronte checkout (build/, weights/, font/, train/). Unset means no
-# Neuronte: every size keeps the theme's own DejaVu face.
-_ROOT = os.environ.get("NEURONTE_HOME", "")
+# A Neuronte checkout (build/, weights/, font/, train/): NEURONTE_HOME, or
+# else the installed one beside the other installed sources,
+# $GPU_TERMINAL_SOURCE_HOME/neuronte (~/.local/gpu_terminal/sources/neuronte
+# by default). Where it has no library or no weights for a size, that size
+# keeps the theme's own DejaVu face.
+def _installed_root():
+    sources = (os.environ.get("GPU_TERMINAL_SOURCE_HOME")
+               or "~/.local/gpu_terminal/sources")
+    return os.path.join(os.path.abspath(os.path.expanduser(sources)), "neuronte")
+
+
+_ROOT = os.environ.get("NEURONTE_HOME") or _installed_root()
 
 _lib = None
 _lib_failed = False
@@ -42,7 +51,7 @@ _tops = None
 
 
 def _path(*parts):
-    """A file in the Neuronte checkout, or "" when none is configured."""
+    """A file in the Neuronte checkout, or "" if the root is empty."""
     return os.path.join(_ROOT, *parts) if _ROOT else ""
 
 

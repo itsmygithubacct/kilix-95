@@ -22,8 +22,8 @@ assert os.path.isfile(T.FONT.path), T.FONT.path
 reopened = ImageFont.truetype(T.FONT.path, 11)
 assert isinstance(reopened, ImageFont.FreeTypeFont)
 
-# Without Neuronte (no NEURONTE_HOME, as on an installed system) the chrome
-# keeps DejaVu; the rest of this test needs the Neuronte files.
+# Without Neuronte (none installed and no NEURONTE_HOME) the chrome keeps
+# DejaVu; the rest of this test needs the Neuronte files.
 if neuronte_face._library() is None or 11 not in UPRIGHT:
     for font in (T.FONT, T.BOLD, T.SMALL):
         assert isinstance(font, ImageFont.FreeTypeFont), font

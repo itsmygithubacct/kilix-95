@@ -19,7 +19,7 @@ ITALIC = [em for em in EMS if os.path.isfile(neuronte_face.weight_path(em, True)
 def require(ready, why):
     """End this test as a skip where the Neuronte files it needs are absent."""
     if not ready:
-        print("skip: %s; set NEURONTE_HOME to a Neuronte checkout to run it" % why)
+        print("skip: %s; install Neuronte or set NEURONTE_HOME to a Neuronte checkout to run it" % why)
         raise SystemExit(0)
 
 
