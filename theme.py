@@ -237,13 +237,37 @@ def ellipsize(font, s, max_w):
     return s + "…"
 
 
+_CLOCK_WIDEST = {}
+
+
+def _clock_stamp(hour, minute):
+    return time.struct_time((2026, 6, 15, hour, minute, 0, 0, 166, -1))
+
+
 def _widest_clock():
-    """The widest ``%I:%M %p`` the taskbar clock can draw."""
-    widest = 0
-    for hour in range(24):
-        for minute in range(60):
-            stamp = time.struct_time((2026, 6, 15, hour, minute, 0, 0, 166, -1))
-            widest = max(widest, text_w(FONT, time.strftime("%I:%M %p", stamp)))
+    """The widest ``%I:%M %p`` the taskbar clock can draw.
+
+    Kept per font: a flavor switch measures the chrome again with the same
+    face. A Neuronte width is the sum of its characters' advances, so the
+    widest stamp is the widest hour, the widest minute and the widest AM/PM
+    with the colon and the space; any other face measures all 1,440 stamps.
+    """
+    hit = _CLOCK_WIDEST.get(id(FONT))
+    if hit is not None:
+        return hit
+    hours = {time.strftime("%I", _clock_stamp(h, 0)) for h in range(24)}
+    minutes = {time.strftime("%M", _clock_stamp(0, m)) for m in range(60)}
+    halves = {time.strftime("%p", _clock_stamp(h, 0)) for h in range(24)}
+    letters = "".join(sorted(set("".join(hours | minutes | halves) + ": ")))
+    if (getattr(FONT, "additive", False) and hasattr(FONT, "for_text")
+            and FONT.for_text(letters) is FONT):
+        adv = {ch: text_w(FONT, ch) for ch in letters}
+        wide = lambda group: max(sum(adv[ch] for ch in s) for s in group)
+        widest = wide(hours) + adv[":"] + wide(minutes) + adv[" "] + wide(halves)
+    else:
+        widest = max(text_w(FONT, time.strftime("%I:%M %p", _clock_stamp(h, m)))
+                     for h in range(24) for m in range(60))
+    _CLOCK_WIDEST[id(FONT)] = widest
     return widest
 
 
@@ -255,6 +279,8 @@ def _remeasure_chrome():
 
 
 _remeasure_chrome()
+# The first frame's letters, drawn while the rest of start-up runs.
+neuronte_face.start_letters((FONT, SMALL))
 
 
 def _blend(a, b, t):

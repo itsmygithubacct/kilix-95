@@ -14,6 +14,11 @@ starts on the same row. It is the table in ``train/glyphs.py``, which is a
 small rule there, so the assignments it needs are run on their own, with
 no imports. The baseline row inside the em, and the baseline's cell row
 when the drawing records one, are read from the face file's header. PIL
+A small face keeps one binary cell per character in memory, drawn once by
+the net: a string is those cells laid at the pen. ``start_letters`` draws
+the whole set on a thread at start, so the first frame does not wait for
+the net.
+
 anchor ``la`` puts the ascender on the pen: the mask is rows
 ``UI_TOP .. UI_TOP+em-1`` and the offset is ``(0, 0)``. Anchor ``ls`` uses
 the same mask shifted up by the baseline row.
@@ -22,12 +27,15 @@ the same mask shifted up by the baseline row.
 import array
 import ast
 import ctypes
+import hashlib
+import json
 import math
 import os
 import re
 import threading
+import time
 
-from PIL import Image, ImageFont
+from PIL import Image, ImageChops, ImageFont
 
 # A Neuronte checkout (build/, weights/, font/, train/): NEURONTE_HOME, or
 # else the installed one beside the other installed sources,
@@ -155,12 +163,78 @@ def _ui_tops():
             text = fh.read()
     except OSError:
         return {}
+    cached = _tops_cache_path(text)
+    table = _read_tops(cached)
+    if table is not None:
+        _tops = table
+        return _tops
     try:
         _tops = _eval_tops(text, path)
     except Exception:
         # A rule this cannot run leaves the headers to say where the em sits.
         _tops = {}
+    if cached and _tops:
+        _write_private(cached, json.dumps(_tops, sort_keys=True).encode())
     return _tops
+
+
+# Parsing glyphs.py costs about 20 ms at every start for a table of small
+# numbers. The table is kept in the Kilix 95 cache under the sha256 of the
+# source it came from, so an edited glyphs.py never reads an old table.
+_TOPS_FORMAT = 1
+
+
+def _tops_cache_path(text):
+    try:
+        import storage
+        folder = storage.private_dir(storage.cache_dir("neuronte"))
+    except Exception:
+        return ""
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return os.path.join(folder, "ui-tops-%d-%s.json" % (_TOPS_FORMAT, digest))
+
+
+def _read_tops(path):
+    """The cached table, or None when it is absent or not a table."""
+    if not path:
+        return None
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != os.geteuid() or info.st_size > 65536:
+            return None
+        table = json.loads(os.read(fd, 65537))
+        tops = {int(em): int(row) for em, row in table.items()}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    finally:
+        os.close(fd)
+    if not tops or not all(1 <= em <= 4096 and 0 <= row <= 8192
+                           for em, row in tops.items()):
+        return None
+    return tops
+
+
+def _write_private(path, data):
+    """Atomic 0600 write. A read-only or full cache is not an error."""
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return False
 
 
 def _face_path(em, italic):
@@ -203,6 +277,7 @@ class _Size:
         self.baseline = baseline
         self.lock = threading.RLock()
         self._cover = {}
+        self.letters = None if scalable else _Letters(self)
 
     def covers(self, text):
         # Caller holds self.lock. The handle is not safe to share unlocked.
@@ -299,6 +374,10 @@ def _mask(size, text, bold, mode):
     width = size.width(text, bold)
     if width < 0:
         return None
+    if mode == "1" and width > 0 and size.letters is not None:
+        im = size.letters.mask(text, bold, width)
+        if im is not None:
+            return im.im
     if width == 0:
         im = Image.new("1" if mode == "1" else "L", (1, max(1, size.rows)), 0)
         return im.im
@@ -312,17 +391,126 @@ def _mask(size, text, bold, mode):
     if rc < 0:
         return None
     if mode == "1":
-        row_b = (buf_w + 7) // 8
-        packed = bytearray(row_b * buf_h)
-        for i, px in enumerate(buf):
-            if px:
-                y, x = divmod(i, buf_w)
-                packed[y * row_b + (x >> 3)] |= 0x80 >> (x & 7)
-        im = Image.frombytes("1", (buf_w, buf_h), bytes(packed))
+        im = _pack_binary(buf, buf_w, buf_h)
     else:
         raw = array.array("B", (px >> 24 for px in buf))
         im = Image.frombytes("L", (buf_w, buf_h), raw.tobytes())
     return im.im
+
+
+_NONZERO = [0] + [255] * 255
+
+
+def _pack_binary(buf, buf_w, buf_h):
+    """Mode "1" image with a bit set wherever the 32-bit pixel is not zero.
+
+    Pillow merges the four channels by maximum and cuts at one; a Python
+    loop over the pixels took 25 times as long as the drawing itself.
+    """
+    rgba = Image.frombuffer("RGBA", (buf_w, buf_h), buf, "raw", "RGBA", 0, 1)
+    c0, c1, c2, c3 = rgba.split()
+    any_ink = ImageChops.lighter(ImageChops.lighter(c0, c1), ImageChops.lighter(c2, c3))
+    return any_ink.point(_NONZERO, "1")
+
+
+# What the small faces cover, most used first: printable ASCII and the
+# ellipsis. start_letters draws these ahead of need.
+COMMON = ("etaoinsrhldcumfpgwybvkxjqz ETAOINSRHLDCUMFPGWYBVKXJQZ"
+          "0123456789.:,-_/()'\"&!?+*=%#@;<>[]{}|\\~^`$\u2026")
+
+
+class _Letters:
+    """Binary cells of one small face, one per character, kept in memory.
+
+    A cell is the face's own drawing of that character alone, cut after its
+    last inked column. A string is the cells laid at the pen and merged,
+    which is what the library does in binary mode: a pixel is set when any
+    letter sets it. Bold lays each cell twice, one pixel apart, and steps
+    by the bold advance. The net draws each character once per process.
+    The owner holds ``size.lock`` around every call.
+    """
+
+    def __init__(self, size):
+        self.size = size
+        self.cells = {}        # scalar -> (advance, bold advance, width, image or None)
+
+    def cell(self, ch):
+        hit = self.cells.get(ord(ch))
+        if hit is not None:
+            return hit
+        size = self.size
+        data = ch.encode("utf-8")
+        adv = _lib.neuronte_text_width(size.ptr, data, len(data), 0, size.em)
+        badv = _lib.neuronte_text_width(size.ptr, data, len(data), 1, size.em)
+        if adv < 0 or badv < 0:
+            return None
+        buf_w, buf_h = adv + size.em + 2, size.rows
+        buf = (ctypes.c_uint32 * (buf_w * buf_h))()
+        if _lib.neuronte_draw_text(
+                size.ptr, ctypes.cast(buf, ctypes.c_void_p), buf_w, buf_w, buf_h,
+                0, -size.ui_top, size.em, 0, data, len(data), 0xFFFFFFFF) < 0:
+            return None
+        im = _pack_binary(buf, buf_w, buf_h)
+        box = im.getbbox()
+        if box is None:
+            hit = (adv, badv, 0, None)
+        else:
+            # Columns 0 .. last inked; the left edge stays at the pen.
+            hit = (adv, badv, box[2], im.crop((0, 0, box[2], buf_h)))
+        self.cells[ord(ch)] = hit
+        return hit
+
+    def mask(self, text, bold, width):
+        """The string's mask, or None so the caller asks the library."""
+        size = self.size
+        out = Image.new("1", (width + size.em + 2, size.rows), 0)
+        pen = 0
+        for ch in text:
+            hit = self.cell(ch)
+            if hit is None:
+                return None
+            adv, badv, w, im = hit
+            if w:
+                out.paste(1, (pen, 0), im)
+                if bold:
+                    out.paste(1, (pen + 1, 0), im)
+            pen += badv if bold else adv
+        if pen != width:
+            return None
+        return out
+
+
+def _draw_letters(sizes):
+    for size in sizes:
+        for ch in COMMON:
+            with size.lock:
+                size.letters.cell(ch)
+            # A Python lock is not fair: taking it again at once kept the
+            # desktop waiting about 55 ms in set-up. A short sleep outside
+            # the lock lets a waiter in.
+            time.sleep(0.0002)
+
+
+def start_letters(fonts):
+    """Draw the common characters of these fonts' small faces on a thread.
+
+    Returns the thread, or None when there is nothing to draw. The desktop
+    does not wait for it: a character it has not reached is drawn when asked
+    for, under the same lock.
+    """
+    seen, sizes = set(), []
+    for font in fonts:
+        face = getattr(font, "_face", None)
+        if (face is not None and face.letters is not None
+                and id(face) not in seen):
+            seen.add(id(face))
+            sizes.append(face)
+    if not sizes:
+        return None
+    thread = threading.Thread(target=_draw_letters, args=(sizes,),
+                              name="neuronte-letters", daemon=True)
+    thread.start()
+    return thread
 
 
 class NeuronteFont:
@@ -342,6 +530,8 @@ class NeuronteFont:
         self._face = face
         self._fallback_font = fallback
         self._variant = variant
+        # A width here is the sum of each character's own rounded advance.
+        self.additive = True
 
     def _use_face(self, text, direction=None, features=None, language=None, stroke_width=0):
         # This adapter lays out independent supported scalars only. Let the
