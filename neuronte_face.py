@@ -15,9 +15,11 @@ small rule there, so the assignments it needs are run on their own, with
 no imports. The baseline row inside the em, and the baseline's cell row
 when the drawing records one, are read from the face file's header. PIL
 A small face keeps one binary cell per character in memory, drawn once by
-the net: a string is those cells laid at the pen. ``start_letters`` draws
-the whole set on a thread at start, so the first frame does not wait for
-the net.
+the net: a string is those cells laid at the pen. The cells are also kept
+in the Kilix 95 cache, one file per em and slant, named by the bytes of the
+weight file and of the library. A face that finds its file draws nothing
+through the net. ``start_letters`` draws the set on a thread at a first
+start, so the first frame does not wait for the net, and saves it.
 
 anchor ``la`` puts the ascender on the pen: the mask is rows
 ``UI_TOP .. UI_TOP+em-1`` and the offset is ``(0, 0)``. Anchor ``ls`` uses
@@ -32,6 +34,8 @@ import json
 import math
 import os
 import re
+import stat
+import struct
 import threading
 import time
 
@@ -237,6 +241,33 @@ def _write_private(path, data):
         return False
 
 
+def _read_private(path, limit):
+    """Bytes of a regular file this user owns, at most limit, or None.
+
+    A link is not followed, and a pipe is not waited for.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_size > limit):
+            return None
+        data = b""
+        while len(data) <= limit:
+            part = os.read(fd, limit + 1 - len(data))
+            if not part:
+                break
+            data += part
+        return data if len(data) <= limit else None
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
 def _face_path(em, italic):
     return _path("font",
                         "ui-%d%s.txt" % (em, "-italic" if italic else ""))
@@ -268,7 +299,8 @@ def _header(em, italic=False):
 
 
 class _Size:
-    def __init__(self, em, ptr, ui_top, baseline, rows=None, scalable=False):
+    def __init__(self, em, ptr, ui_top, baseline, rows=None, scalable=False,
+                 italic=False):
         self.em = em
         self.rows = em if rows is None else rows
         self.scalable = scalable
@@ -277,7 +309,7 @@ class _Size:
         self.baseline = baseline
         self.lock = threading.RLock()
         self._cover = {}
-        self.letters = None if scalable else _Letters(self)
+        self.letters = None if scalable else _Letters(self, italic)
 
     def covers(self, text):
         # Caller holds self.lock. The handle is not safe to share unlocked.
@@ -354,7 +386,7 @@ def _load(em, italic=False):
     if lib.neuronte_set_binary(handle, 0 if scalable else 1) != 0:
         lib.neuronte_close(handle)
         return None
-    return _Size(em, handle, ui_top, baseline, rows, scalable)
+    return _Size(em, handle, ui_top, baseline, rows, scalable, italic)
 
 
 def _as_text(text):
@@ -419,6 +451,79 @@ COMMON = ("etaoinsrhldcumfpgwybvkxjqz ETAOINSRHLDCUMFPGWYBVKXJQZ"
           "0123456789.:,-_/()'\"&!?+*=%#@;<>[]{}|\\~^`$\u2026")
 
 
+# The cells of one small face on disk. After the magic, each cell is its
+# scalar, advance, bold advance and width, then ceil(width / 8) * rows
+# bytes of a Pillow mode "1" image; a sha256 of all the cells ends the file.
+# The name is a sha256 over the weight file's and the library's own sha256,
+# this format number, and the em, slant, rows and UI_TOP the cells were drawn
+# with: other weights or another library never find this file. Nothing is
+# deleted or migrated; a file that fails any check is not used.
+_CELLS_FORMAT = 1
+_CELLS_MAGIC = b"NRTATLAS"
+_CELLS_LIMIT = 1 << 20
+_CELL = struct.Struct("<IHHH")
+_ADVANCE_LIMIT = 4096
+_digests = {}        # library path -> sha256 of its bytes
+
+
+def _file_digest(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).digest()
+
+
+def _cells_path(size, italic):
+    """Where this face's cells are kept, or "" when they cannot be."""
+    library = getattr(_lib, "_name", "")
+    try:
+        weights = _file_digest(weight_path(size.em, italic))
+        code = _digests.get(library)
+        if code is None:
+            code = _digests[library] = _file_digest(library)
+        import storage
+        folder = storage.private_dir(storage.cache_dir("neuronte"))
+    except Exception:
+        return ""
+    name = hashlib.sha256(weights + code + b"%d %d %d %d %d" % (
+        _CELLS_FORMAT, size.em, int(bool(italic)), size.rows, size.ui_top))
+    return os.path.join(folder, "cells-%s.bin" % name.hexdigest())
+
+
+def _pack_cells(cells):
+    body = bytearray()
+    for cp, (adv, badv, width, im) in sorted(cells.items()):
+        body += _CELL.pack(cp, adv, badv, width)
+        if width:
+            body += im.tobytes()
+    return _CELLS_MAGIC + bytes(body) + hashlib.sha256(body).digest()
+
+
+def _read_cells(path, em, rows):
+    """{scalar: cell} from a cells file, or None when any part is wrong."""
+    raw = _read_private(path, _CELLS_LIMIT) if path else None
+    if raw is None or raw[:8] != _CELLS_MAGIC:
+        return None
+    body, digest = raw[8:-32], raw[-32:]
+    if hashlib.sha256(body).digest() != digest:
+        return None
+    pos, cells = 0, {}
+    while pos < len(body):
+        if pos + _CELL.size > len(body):
+            return None
+        cp, adv, badv, width = _CELL.unpack_from(body, pos)
+        pos += _CELL.size
+        # A cell is never wider than the buffer it was cut from.
+        if (cp > 0x10FFFF or cp in cells or adv > _ADVANCE_LIMIT
+                or badv > _ADVANCE_LIMIT or width > adv + em + 2):
+            return None
+        count = (width + 7) // 8 * rows
+        if pos + count > len(body):
+            return None
+        im = Image.frombytes("1", (width, rows), body[pos:pos + count]) if width else None
+        pos += count
+        cells[cp] = (adv, badv, width, im)
+    return cells
+
+
 class _Letters:
     """Binary cells of one small face, one per character, kept in memory.
 
@@ -426,13 +531,26 @@ class _Letters:
     last inked column. A string is the cells laid at the pen and merged,
     which is what the library does in binary mode: a pixel is set when any
     letter sets it. Bold lays each cell twice, one pixel apart, and steps
-    by the bold advance. The net draws each character once per process.
-    The owner holds ``size.lock`` around every call.
+    by the bold advance. The net draws each character once per process, and
+    not at all when the face's cells file holds it. Bold uses the regular
+    cells, so one file serves both. The owner holds ``size.lock`` around
+    every call.
     """
 
-    def __init__(self, size):
+    def __init__(self, size, italic=False):
         self.size = size
-        self.cells = {}        # scalar -> (advance, bold advance, width, image or None)
+        self.unsaved = False   # a cell was drawn here that the file does not hold
+        self.path = _cells_path(size, italic)
+        # scalar -> (advance, bold advance, width, image or None)
+        self.cells = _read_cells(self.path, size.em, size.rows) or {}
+
+    def complete(self):
+        return all(ord(ch) in self.cells for ch in COMMON)
+
+    def save(self):
+        """Write the cells if any is new. A failed write is ignored."""
+        if self.unsaved and self.path and _write_private(self.path, _pack_cells(self.cells)):
+            self.unsaved = False
 
     def cell(self, ch):
         hit = self.cells.get(ord(ch))
@@ -458,6 +576,7 @@ class _Letters:
             # Columns 0 .. last inked; the left edge stays at the pen.
             hit = (adv, badv, box[2], im.crop((0, 0, box[2], buf_h)))
         self.cells[ord(ch)] = hit
+        self.unsaved = True
         return hit
 
     def mask(self, text, bold, width):
@@ -489,22 +608,39 @@ def _draw_letters(sizes):
             # desktop waiting about 55 ms in set-up. A short sleep outside
             # the lock lets a waiter in.
             time.sleep(0.0002)
+        with size.lock:
+            size.letters.save()
+
+
+def save_letters():
+    """Save every small face whose cells grew since they were read.
+
+    For the end of a run: a size opened after start has no thread to save it.
+    """
+    for size in list(_sizes.values()):
+        if size is not None and size.letters is not None:
+            with size.lock:
+                size.letters.save()
 
 
 def start_letters(fonts):
-    """Draw the common characters of these fonts' small faces on a thread.
+    """Draw the common characters of these fonts' small faces on a thread,
+    then save them.
 
-    Returns the thread, or None when there is nothing to draw. The desktop
-    does not wait for it: a character it has not reached is drawn when asked
-    for, under the same lock.
+    Returns the thread, or None when there is nothing to draw: a face whose
+    cells file was read is complete already. The desktop does not wait for
+    it: a character it has not reached is drawn when asked for, under the
+    same lock.
     """
     seen, sizes = set(), []
     for font in fonts:
         face = getattr(font, "_face", None)
-        if (face is not None and face.letters is not None
-                and id(face) not in seen):
-            seen.add(id(face))
-            sizes.append(face)
+        if face is None or face.letters is None or id(face) in seen:
+            continue
+        seen.add(id(face))
+        with face.lock:
+            if not face.letters.complete():
+                sizes.append(face)
     if not sizes:
         return None
     thread = threading.Thread(target=_draw_letters, args=(sizes,),
