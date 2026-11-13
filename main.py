@@ -52,7 +52,7 @@ _SYSTEM_MODULES = (
     "Xlib.Xatom", "Xlib.display", "Xlib.ext.xfixes", "termios",
     "unicodedata", "PIL.ImageChops", "PIL.ImageFont", "configparser",
     "datetime", "ssl", "urllib.error", "urllib.request", "tarfile", "zipfile",
-    "uuid", "packaging.version", "shlex", "calendar", "wave",
+    "uuid", "shlex", "calendar", "wave",
     "concurrent.futures.thread", "importlib.resources._adapters", "tty",
     "importlib.readers", "PIL.BmpImagePlugin", "PIL.GifImagePlugin",
     "PIL.JpegImagePlugin", "PIL.PpmImagePlugin", "encodings.idna",
@@ -61,10 +61,25 @@ _SYSTEM_MODULES = (
     # installed, so without that package nothing else does.
     "xml.etree.ElementTree",
 )
+# Imported by PIL's FreeTypeFont() itself when theme opens the first font, in
+# the Pillow versions whose constructor checks the FreeType version that way
+# (11; 10 does not). Listed only when this Pillow's constructor names it.
+_FONT_MODULES = ("packaging.version",)
+
+
+def _font_modules():
+    try:
+        from PIL import ImageFont
+        used = ImageFont.FreeTypeFont.__init__.__code__.co_names
+    except Exception:
+        return []
+    return [name for name in _FONT_MODULES if name in used]
 
 
 def _import_system_modules():
     names = list(_SYSTEM_MODULES)
+    if _FONT_MODULES:
+        names += _font_modules()
     # Desk._run's condition for opening the host display: connecting imports
     # these, plus python-xlib's module for each extension the server has.
     if os.environ.get("KILIX_HOST_CLIP", "1") != "0" and \

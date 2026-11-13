@@ -11,6 +11,7 @@ system module start-up uses is imported before that frame.
 
 Not a test itself (run.py only runs test_*.py).
 """
+import ast
 import fcntl
 import importlib.util
 import os
@@ -44,9 +45,11 @@ os.close(fd)
 with open(main_path, encoding="utf-8") as fh:
     source = fh.read()
 if empty:
-    start = source.index("_SYSTEM_MODULES = (")
-    end = source.index("\n)\n", start) + 2
-    source = source[:start] + "_SYSTEM_MODULES = ()" + source[end:]
+    for name in ("_SYSTEM_MODULES", "_FONT_MODULES"):
+        start = source.index(name + " = (")
+        multiline = source.startswith(name + " = (\n", start)
+        end = source.index("\n)\n" if multiline else ")\n", start) + (2 if multiline else 1)
+        source = source[:start] + name + " = ()" + source[end:]
 sys.argv = [main_path]
 sys.path[0] = os.path.dirname(main_path)
 scope = {"__name__": "kilix95_bytecode_test", "__file__": main_path}
@@ -169,16 +172,26 @@ def tree_pycache():
     return found
 
 
-def system_list():
-    """main.py's _SYSTEM_MODULES, read from the source."""
-    import ast
-    with open(os.path.join(ROOT, "main.py"), encoding="utf-8") as fh:
-        tree = ast.parse(fh.read())
+def _tuple(tree, name):
     for node in tree.body:
         if isinstance(node, ast.Assign) and \
-                [t.id for t in node.targets if isinstance(t, ast.Name)] == ["_SYSTEM_MODULES"]:
+                [t.id for t in node.targets if isinstance(t, ast.Name)] == [name]:
             return [elt.value for elt in node.value.elts]
-    raise AssertionError("main.py has no _SYSTEM_MODULES")
+    raise AssertionError("main.py has no " + name)
+
+
+def system_list():
+    """main.py's _SYSTEM_MODULES, plus the _FONT_MODULES this Pillow's
+    FreeTypeFont() imports (main.py's own rule), read from the source."""
+    with open(os.path.join(ROOT, "main.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    names = _tuple(tree, "_SYSTEM_MODULES")
+    try:
+        from PIL import ImageFont
+        used = ImageFont.FreeTypeFont.__init__.__code__.co_names
+    except Exception:
+        used = ()
+    return names + [n for n in _tuple(tree, "_FONT_MODULES") if n in used]
 
 
 def module_source(name):
