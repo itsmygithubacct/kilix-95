@@ -1,8 +1,9 @@
 """Neuronte desktop face for Kilix 95.
 
 Binary weights through 32 px, and a blended scalable upright face above.
-One weight file per small em: ``neuronte-ui{em}-v0.nrt``, and for italic
-``neuronte-ui{em}-italic-v0.nrt``. Small bold is the letter struck twice,
+One weight file per small em: ``neuronte-ui{em}-v1.nrt``, and for italic
+``neuronte-ui{em}-italic-v1.nrt``; a tree that has only the earlier ``-v0``
+files is read the same way. Small bold is the letter struck twice,
 one pixel to the right. Scalable bold dilates ink by round(em/32) pixels
 and adds exactly that many pixels to each regular advance. A size or style with no file is
 DejaVu (DejaVu Oblique for italic). A string with a character the file
@@ -281,11 +282,22 @@ def open_size(em, italic=False):
         return loaded
 
 
+def newest(stem, versions):
+    """The weight file of the first of these versions that is present, or
+    the first one's path when none is. A tree holds one generation of a
+    net: the slim Neuronte set has the later one, an older tree the earlier."""
+    paths = [_path("weights", "%s-v%d.nrt" % (stem, v)) for v in versions]
+    for path in paths:
+        if path and os.path.isfile(path):
+            return path
+    return paths[0]
+
+
 def weight_path(em, italic=False):
     if int(em) >= 33 and not italic:
         return _path("weights", "neuronte-ui-large-v0.nrt")
-    return _path("weights", "neuronte-ui%d%s-v0.nrt"
-                        % (int(em), "-italic" if italic else ""))
+    return newest("neuronte-ui%d%s" % (int(em), "-italic" if italic else ""),
+                  (1, 0))
 
 
 def _load(em, italic=False):
