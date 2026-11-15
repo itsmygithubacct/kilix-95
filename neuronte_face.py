@@ -108,6 +108,23 @@ def _load_library():
             draw_stroke.argtypes = lib.neuronte_draw_text.argtypes
             draw_stroke.restype = ctypes.c_int
             lib.has_stroke = True
+        # The library's own packing and line laying, where it has them; an
+        # earlier library leaves that work to the Pillow code below.
+        try:
+            pack, alpha, compose = (lib.neuronte_bits_pack, lib.neuronte_alpha_pack,
+                                    lib.neuronte_bits_compose)
+        except AttributeError:
+            lib.has_bits = False
+        else:
+            pack.argtypes = alpha.argtypes = [
+                ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                ctypes.c_void_p, ctypes.c_size_t]
+            compose.argtypes = [
+                ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int,
+                ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+                ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+            pack.restype = alpha.restype = compose.restype = ctypes.c_int
+            lib.has_bits = True
         lib.neuronte_advance_scalar.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         lib.neuronte_advance_scalar.restype = ctypes.c_uint32
         lib.neuronte_close.argtypes = [ctypes.c_void_p]
@@ -370,6 +387,11 @@ def _mask(size, text, bold, mode):
         return None
     if mode == "1":
         im = _pack_binary(buf, buf_w, buf_h)
+    elif _lib.has_bits:
+        raw = ctypes.create_string_buffer(buf_w * buf_h)
+        if _lib.neuronte_alpha_pack(buf, buf_w, buf_w, buf_h, raw, len(raw)) != 0:
+            return None
+        im = Image.frombytes("L", (buf_w, buf_h), raw.raw)
     else:
         raw = array.array("B", (px >> 24 for px in buf))
         im = Image.frombytes("L", (buf_w, buf_h), raw.tobytes())
@@ -384,7 +406,12 @@ def _pack_binary(buf, buf_w, buf_h):
 
     Pillow merges the four channels by maximum and cuts at one; a Python
     loop over the pixels took 25 times as long as the drawing itself.
+    A library that has neuronte_bits_pack does it in one call.
     """
+    if _lib is not None and _lib.has_bits:
+        raw = ctypes.create_string_buffer(((buf_w + 7) // 8) * buf_h)
+        if _lib.neuronte_bits_pack(buf, buf_w, buf_w, buf_h, raw, len(raw)) == 0:
+            return Image.frombytes("1", (buf_w, buf_h), raw.raw)
     rgba = Image.frombuffer("RGBA", (buf_w, buf_h), buf, "raw", "RGBA", 0, 1)
     c0, c1, c2, c3 = rgba.split()
     any_ink = ImageChops.lighter(ImageChops.lighter(c0, c1), ImageChops.lighter(c2, c3))
@@ -408,6 +435,7 @@ _CELLS_FORMAT = 1
 _CELLS_MAGIC = b"NRTATLAS"
 _CELLS_LIMIT = 1 << 20
 _CELL = struct.Struct("<IHHH")
+_BITS_CELL = struct.Struct("=IHHHH")    # the library's neuronte_bits_cell
 _ADVANCE_LIMIT = 4096
 _digests = {}        # library path -> sha256 of its bytes
 
@@ -489,6 +517,12 @@ class _Letters:
         self.path = _cells_path(size, italic)
         # scalar -> (advance, bold advance, width, image or None)
         self.cells = _read_cells(self.path, size.em, size.rows) or {}
+        # The same cells as the library lays them: one atlas of 1-bit rows,
+        # a neuronte_bits_cell for each letter, and each letter's index.
+        self._index = {}
+        self._atlas = bytearray()
+        self._records = bytearray()
+        self._c = None        # ctypes copies of the two, made when a letter is added
 
     def complete(self):
         return all(ord(ch) in self.cells for ch in COMMON)
@@ -525,9 +559,52 @@ class _Letters:
         self.unsaved = True
         return hit
 
+    def _add(self, ch):
+        """Put this letter in the atlas. False when it cannot be drawn or
+        does not fit a neuronte_bits_cell."""
+        hit = self.cell(ch)
+        if hit is None:
+            return False
+        adv, badv, width, im = hit
+        if not (0 <= adv <= 0xFFFF and 0 <= badv <= 0xFFFF and 0 <= width <= 0xFFFF):
+            return False
+        self._records += _BITS_CELL.pack(len(self._atlas), width, adv, badv, 0)
+        if width:
+            self._atlas += im.tobytes()
+        self._index[ch] = len(self._index)
+        self._c = None
+        return True
+
+    def _compose(self, text, bold, width):
+        """The string laid by the library from the kept letters, or None."""
+        index = self._index
+        try:
+            order = [index[ch] for ch in text]
+        except KeyError:
+            for ch in text:
+                if ch not in index and not self._add(ch):
+                    return None
+            order = [index[ch] for ch in text]
+        if self._c is None:
+            self._c = (ctypes.create_string_buffer(bytes(self._records), len(self._records)),
+                       ctypes.create_string_buffer(bytes(self._atlas), max(1, len(self._atlas))))
+        records, atlas = self._c
+        size = self.size
+        out_w = width + size.em + 2
+        out = ctypes.create_string_buffer(((out_w + 7) // 8) * size.rows)
+        pen = _lib.neuronte_bits_compose(
+            out, len(out), out_w, size.rows, atlas, len(self._atlas),
+            records, len(index), (ctypes.c_uint32 * len(order))(*order), len(order),
+            1 if bold else 0)
+        if pen != width:
+            return None
+        return Image.frombytes("1", (out_w, size.rows), out.raw)
+
     def mask(self, text, bold, width):
         """The string's mask, or None so the caller asks the library."""
         size = self.size
+        if _lib.has_bits:
+            return self._compose(text, bold, width)
         out = Image.new("1", (width + size.em + 2, size.rows), 0)
         pen = 0
         for ch in text:
