@@ -7,8 +7,8 @@ runtime. Small text is binary; the scalable face above 32 px retains
 antialiased coverage even when a widget requests binary masks.
 
 Fonts: chrome labels use the Neuronte desktop face when
-``neuronte-ui{em}-v0.nrt`` is present for that size, and italic uses
-``neuronte-ui{em}-italic-v0.nrt``. Small bold is struck twice, one pixel
+``neuronte-ui{em}-v1.nrt`` is present for that size, and italic uses
+``neuronte-ui{em}-italic-v1.nrt`` (or the earlier ``-v0`` files). Small bold is struck twice, one pixel
 apart. Upright sizes above 32 use neuronte-ui-large-v0.nrt, with scalable
 bold stroke and matching extra advances of max(1, round(em/32)) pixels.
 A size or style with no file uses the TrueType
