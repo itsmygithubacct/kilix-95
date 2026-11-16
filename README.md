@@ -28,8 +28,8 @@ Since 0.2.2, Kilix 95:
   - Lists the questions first and the downloads after them.
   - Has a Change choices button that reopens every page with the saved
     answers checked.
-  - Says that Kilix Ask installs no model unless you choose one.
-    <!-- LFM2: confirm at final list -->
+- **Kilix Workflows.** The window says that Kilix Ask installs no model unless
+  you choose one.
 - **Chat.** Opens the optional 0.8B chat with thinking off.
 - **Writes.** Completes short writes before publishing a cache file.
 
