@@ -1,10 +1,36 @@
 # Kilix 95
 
-## 0.2.2.1 maintenance candidate
+## Release 0.2.3
 
-Model Setup removes submitted administrator passwords from terminal output before displaying or saving the diagnostic transcript, including echoes split across reads.
+Kilix 95 0.2.3 is part of the coordinated
+[Plebian-OS 0.2.3 release](https://github.com/itsmygithubacct/plebian-os/blob/v0.2.3/releases/0.2.3-notes.md),
+which records the exact stack closure, its qualification and known issues.
+Since 0.2.2, Kilix 95:
 
-This source is a release candidate; installation-media and upgrade acceptance are pending.
+- **Neuronte text and artwork.** Draws the desktop faces and flame with the
+  Neuronte v2 renderer. It reads the `-v1` faces and flame where the installed
+  tree has them, and the earlier `-v0` files in a tree that has only those. A
+  line of kept letters is laid with one packed-mask library call. Letter cells
+  persist across launches, and the generated `font/ui-tops.json` is read
+  without evaluating training code.
+- **Startup.** Starts faster: standard-library and Debian modules load from
+  Debian's own bytecode, and Plebian-OS prepares the bytecode and letter caches
+  after installation and every update. Pointer motion no longer measures text
+  it does not use.
+- **SSH.** Adds Start ▸ System ▸ Remote login (SSH), which turns the
+  opt-in SSH server on or off through `plebian-os-ssh-server`.
+- **Model wizard.**
+  - Lists the questions first and the downloads after them.
+  - Has a Change choices button that reopens every page with the saved
+    answers checked.
+  - Says that Kilix Ask installs no model unless you choose one.
+    <!-- LFM2: confirm at final list -->
+- **Chat.** Opens the optional 0.8B chat with thinking off.
+- **Writes.** Completes short writes before publishing a cache file.
+
+Model Setup also removes submitted administrator passwords from terminal output
+before displaying or saving the diagnostic transcript, including echoes split
+across reads (the 0.2.2.1 maintenance fix, first published in 0.2.3).
 
 A Windows 95-style desktop rendered as **pixels** inside a Kilix pane, with an
 optional Windows XP-style flavor.
@@ -26,11 +52,11 @@ kilix desktop
 
 Quit through Start -> Shut Down..., or press `Ctrl+Alt+Q`.
 
-## Release 0.2.2 — in development
+## Release 0.2.2
 
-The reviewed source integration is selected for the coordinated Plebian-OS
-0.2.2 candidate. Image, upgrade, rollback and final installed acceptance remain
-pending; use the [OS upgrade policy](https://github.com/itsmygithubacct/plebian-os/blob/main/UPGRADING.md)
+These changes were developed for the coordinated Plebian-OS 0.2.2 release; its
+notes record what shipped and was qualified there, and the rest is part of
+0.2.3. Use the [OS upgrade policy](https://github.com/itsmygithubacct/plebian-os/blob/main/UPGRADING.md)
 for supported release paths.
 
 The PTY session manager uses the matching host's structured session interface
