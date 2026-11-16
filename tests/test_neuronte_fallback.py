@@ -11,12 +11,20 @@ require(all(N.open_size(em, italic) for em, italic in ((11, False), (16, True), 
         "no Neuronte 11px, 16px italic or large weights, or a library without strokes")
 
 clusters = ('e\u0301', 'A\u0323\u0301B', '\u2764\ufe0f', '\U0001f1ec\U0001f1e7',
-            '\U0001f469\u200d\U0001f4bb', 'fi\u200d', 'A\u00e9B')
+            '\U0001f469\u200d\U0001f4bb', 'fi\u200d', 'A\u0153B')
 for em, italic in ((11,False),(16,True),(64,False)):
     for bold in (False,True):
         font = T.font_at(em,bold=bold,italic=italic)
         assert isinstance(font,N.NeuronteFont)
         fallback = font._fallback_font
+        # A precomposed Latin-1 letter is the face's where the file has it (the
+        # scaled and large faces with Latin-1 letters), and DejaVu's where not.
+        size = N.open_size(em, italic)
+        with size.lock:
+            accented = size.covers('\u00e9')
+        assert font._use_face('A\u00e9B') == accented, (em, italic, accented)
+        if not accented:
+            assert font.getlength('A\u00e9B') == fallback.getlength('A\u00e9B')
         for text in clusters:
             assert not font._use_face(text)
             assert font.getlength(text) == fallback.getlength(text)
