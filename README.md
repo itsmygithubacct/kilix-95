@@ -18,7 +18,12 @@ Since 0.2.2, Kilix 95:
   after installation and every update. Pointer motion no longer measures text
   it does not use.
 - **SSH.** Adds Start ▸ System ▸ Remote login (SSH), which turns the
-  opt-in SSH server on or off through `plebian-os-ssh-server`.
+  opt-in SSH server on or off through `plebian-os-ssh-server`. Turn SSH on
+  shows the every-account warning and asks `Turn SSH on now? [y/N]` in its tab
+  before sudo asks for a password; anything but y or yes leaves SSH unchanged
+  and shows its status. The tab ends with the helper's own report of the real
+  state, including a refusal that names any account still on the 0.2.0
+  starter password.
 - **Model wizard.**
   - Lists the questions first and the downloads after them.
   - Has a Change choices button that reopens every page with the saved
