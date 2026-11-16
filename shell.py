@@ -1643,6 +1643,18 @@ class Shell:
                 items.append(W.MenuItem("-"))
             items.append(launcher(f'sudo "{deps}"', "Reinstall dependencies",
                                   icon="settings"))
+        # Plebian-OS 0.2.3: the SSH server is off unless the owner turns it
+        # on. Each entry runs the one privileged helper in a visible tab; sudo
+        # asks for the password there, as it does for the dependency reinstall.
+        ssh = "/usr/local/sbin/plebian-os-ssh-server"
+        if os.path.exists(ssh):
+            if items:
+                items.append(W.MenuItem("-"))
+            items.append(W.MenuItem("Remote login (SSH)", icon="network", submenu=[
+                launcher(f'sudo "{ssh}" enable', "Turn SSH on", icon="settings"),
+                launcher(f'sudo "{ssh}" disable', "Turn SSH off", icon="settings"),
+                launcher(f'"{ssh}" status', "Show SSH status", icon="info"),
+            ]))
 
         # any other executable *.sh shipped under the checkouts' scripts/ dirs
         extra = []

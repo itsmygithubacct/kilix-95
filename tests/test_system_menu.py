@@ -83,4 +83,30 @@ assert _labels(scripts.submenu) == ["install-go.sh"], _labels(scripts.submenu)
 assert all(callable(it.action) for it in items if it.submenu is None
            and it.label != "-")
 
+# Plebian-OS 0.2.3 with the SSH server helper: one submenu, three launchers
+# running the same helper (sudo for the two that change anything).
+SSH = "/usr/local/sbin/plebian-os-ssh-server"
+items = run_case(
+    present_files={"/usr/local/sbin/plebian-os-install-deps", SSH},
+    present_dirs=set(),
+    dir_listing={},
+    expect=["Reinstall dependencies", "Remote login (SSH)"])
+ssh_menu = [it for it in items if it.label == "Remote login (SSH)"][0]
+assert _labels(ssh_menu.submenu) == ["Turn SSH on", "Turn SSH off",
+                                     "Show SSH status"], _labels(ssh_menu.submenu)
+ran = []
+DESK.shell.run_maintenance = lambda cmd, title: ran.append((cmd, title))
+try:
+    for it in ssh_menu.submenu:
+        it.action()
+finally:
+    del DESK.shell.run_maintenance
+assert ran == [(f'sudo "{SSH}" enable', "Turn SSH on"),
+               (f'sudo "{SSH}" disable', "Turn SSH off"),
+               (f'"{SSH}" status', "Show SSH status")], ran
+# without the helper (an older OS layer, or a plain checkout) there is no entry
+run_case({SSH}, set(), {}, ["Remote login (SSH)"])
+run_case({"/usr/local/sbin/plebian-os-install-deps"}, set(), {},
+         ["Reinstall dependencies"])
+
 print("test_system_menu OK")
