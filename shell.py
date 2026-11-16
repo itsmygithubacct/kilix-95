@@ -1646,12 +1646,14 @@ class Shell:
         # Plebian-OS 0.2.3: the SSH server is off unless the owner turns it
         # on. Each entry runs the one privileged helper in a visible tab; sudo
         # asks for the password there, as it does for the dependency reinstall.
+        # Turning it on asks first in that tab, so a machine whose sudo needs
+        # no password still never opens SSH from one click.
         ssh = "/usr/local/sbin/plebian-os-ssh-server"
         if os.path.exists(ssh):
             if items:
                 items.append(W.MenuItem("-"))
             items.append(W.MenuItem("Remote login (SSH)", icon="network", submenu=[
-                launcher(f'sudo "{ssh}" enable', "Turn SSH on", icon="settings"),
+                launcher(ssh_enable_command(ssh), "Turn SSH on", icon="settings"),
                 launcher(f'sudo "{ssh}" disable', "Turn SSH off", icon="settings"),
                 launcher(f'"{ssh}" status', "Show SSH status", icon="info"),
             ]))
@@ -2011,3 +2013,28 @@ def desktop_exec_argv(spec, desktop_path=None):
 def shell_quote(s):
     import shlex
     return shlex.quote(s)
+
+
+SSH_ENABLE_WARNING = (
+    "Turn on the SSH server?",
+    "",
+    "Every account on this computer that has a password can then log in over",
+    "the network. Anyone who can reach this computer and knows or guesses one",
+    "of those passwords can log in as that account.",
+    "",
+)
+
+
+def ssh_enable_command(helper):
+    """Start > System > Remote login (SSH) > Turn SSH on, as a bash command:
+    warn, ask [y/N] in the tab, and run the helper only on an explicit yes.
+    Enter, end of input or anything else changes nothing and shows the state."""
+    quoted = shell_quote(helper)
+    lines = " ".join(shell_quote(line) for line in SSH_ENABLE_WARNING)
+    return (f'printf "%s\\n" {lines}; '
+            'printf "Turn SSH on now? [y/N] "; '
+            'answer=""; read -r answer; '
+            'case "$answer" in '
+            f'[yY]|[yY][eE][sS]) sudo {quoted} enable ;; '
+            f'*) echo "SSH was not changed."; {quoted} status ;; '
+            'esac')
