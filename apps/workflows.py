@@ -14,7 +14,7 @@ class WorkflowsOffer(wm.Window):
                    or bool(self.offer.ready))
         self.add(W.Label(16, 16, 'Uses the Ask model selected in Model Setup.'))
         self.add(W.Label(16, 40, 'Grammar and direct actions work without downloads.'))
-        self.add(W.Label(16, 64, 'No Ask model is installed until you choose one.'))
+        self.add(W.Label(16, 64, 'Kilix Ask installs no model unless you choose one.'))
         self.add(W.Label(16, 88, 'Setup shows licences before fetching missing models.'))
         self.add(W.Label(16, 106, 'Missing models are offered again after updates.'))
         self.status = self.add(W.Label(16, 137, self.offer.status[:68]))
