@@ -3,7 +3,13 @@
 Binary weights through 32 px, and a blended scalable upright face above.
 One weight file per small em: ``neuronte-ui{em}-v1.nrt``, and for italic
 ``neuronte-ui{em}-italic-v1.nrt``; a tree that has only the earlier ``-v0``
-files is read the same way. Small bold is the letter struck twice,
+files is read the same way. A tree with no file for an em from 17 to 32
+but with ``neuronte-ui-scaled-v0.nrt``, or the ``-latin1`` file that adds
+the accented letters, draws that em with it: one design
+scaled, its stems snapped to whole pixels by the library, binary like the
+small faces and kept letter by letter the same way. Its italic is the
+upright letter sheared by the library and stepped by
+``neuronte-ui-scaled-italic-advances-v0.nrt``. Small bold is the letter struck twice,
 one pixel to the right. Scalable bold dilates ink by round(em/32) pixels
 and adds exactly that many pixels to each regular advance. A size or style with no file is
 DejaVu (DejaVu Oblique for italic). A string with a character the file
@@ -127,6 +133,21 @@ def _load_library():
             lib.has_bits = True
         lib.neuronte_advance_scalar.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         lib.neuronte_advance_scalar.restype = ctypes.c_uint32
+        # The scaled face's italic: a sheared letter and its own advances.
+        try:
+            styled = lib.neuronte_draw_scalar_styled
+            advance = lib.neuronte_advance
+        except AttributeError:
+            lib.has_styled = False
+        else:
+            styled.argtypes = [
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint]
+            styled.restype = ctypes.c_int
+            advance.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int, ctypes.c_int]
+            advance.restype = ctypes.c_int
+            lib.has_styled = True
         lib.neuronte_close.argtypes = [ctypes.c_void_p]
         lib.neuronte_close.restype = None
         _lib = lib
@@ -252,8 +273,11 @@ def _header(em, italic=False):
 
 class _Size:
     def __init__(self, em, ptr, ui_top, baseline, rows=None, scalable=False,
-                 italic=False):
+                 italic=False, slant=None):
         self.em = em
+        # The advances of a sheared italic, when the letters are the upright
+        # face's: the scaled face from 17 to 32 px. None for every other face.
+        self.slant = slant
         self.rows = em if rows is None else rows
         self.scalable = scalable
         self.ptr = ptr
@@ -280,7 +304,7 @@ class _Size:
         if self.scalable and bold:
             return _lib.neuronte_text_width_stroke(
                 self.ptr, data, len(data), self.stroke(bold), self.em)
-        return _lib.neuronte_text_width(self.ptr, data, len(data), bold, self.em)
+        return _lib.neuronte_text_width(self.slant or self.ptr, data, len(data), bold, self.em)
 
     def stroke(self, bold):
         return max(1, (self.em + 16) // 32) if self.scalable and bold else int(bool(bold))
@@ -310,11 +334,53 @@ def newest(stem, versions):
     return paths[0]
 
 
+SCALED = range(17, 33)     # the ems one scaled file can draw
+
+
+def _first(*names):
+    """The first of these weight files that is present, or the first's path."""
+    paths = [_path("weights", name) for name in names]
+    for path in paths:
+        if path and os.path.isfile(path):
+            return path
+    return paths[0]
+
+
+def _scaled_path():
+    # The file with the Latin-1 letters where a tree has it: the same ASCII.
+    return _first("neuronte-ui-scaled-latin1-v0.nrt", "neuronte-ui-scaled-v0.nrt")
+
+
+def _slant_path():
+    if os.path.basename(_scaled_path()) == "neuronte-ui-scaled-latin1-v0.nrt":
+        return _path("weights", "neuronte-ui-scaled-latin1-italic-advances-v0.nrt")
+    return _path("weights", "neuronte-ui-scaled-italic-advances-v0.nrt")
+
+
 def weight_path(em, italic=False):
     if int(em) >= 33 and not italic:
-        return _path("weights", "neuronte-ui-large-v0.nrt")
-    return newest("neuronte-ui%d%s" % (int(em), "-italic" if italic else ""),
-                  (1, 0))
+        return _first("neuronte-ui-large-latin1-v1.nrt", "neuronte-ui-large-v1.nrt",
+                      "neuronte-ui-large-v0.nrt")
+    own = newest("neuronte-ui%d%s" % (int(em), "-italic" if italic else ""),
+                 (1, 0))
+    if int(em) in SCALED and not os.path.isfile(own):
+        scaled = _scaled_path()
+        if scaled and os.path.isfile(scaled) and (
+                not italic or os.path.isfile(_slant_path())):
+            return scaled
+    return own
+
+
+def kind(em, italic=False):
+    """How this em is drawn: "pixel" by its own hand-drawn face, "scaled"
+    by the one scaled face, "large" by the blended face above 32 px, or
+    None when no file draws it."""
+    path = weight_path(em, italic)
+    if not path or not os.path.isfile(path):
+        return None
+    if int(em) >= 33 and not italic:
+        return "large"
+    return "scaled" if path == _scaled_path() else "pixel"
 
 
 def _load(em, italic=False):
@@ -325,8 +391,12 @@ def _load(em, italic=False):
     if not os.path.isfile(path):
         return None
     scalable = em >= 33 and not italic
-    if scalable:
+    scaled = not scalable and path == _scaled_path()
+    if scaled and italic and not lib.has_styled:
+        return None
+    if scalable or scaled:
         # Geometry from glyphs.large_rows; checked against that source in tests.
+        # The scaled face is the same design in the same cell.
         ui_top = math.floor(0.6 * em)
         rows = math.ceil(1.6 * em) - ui_top
         baseline = math.floor((1.35 + 3 / 64) * em - 0.5) - ui_top
@@ -349,7 +419,13 @@ def _load(em, italic=False):
     if lib.neuronte_set_binary(handle, 0 if scalable else 1) != 0:
         lib.neuronte_close(handle)
         return None
-    return _Size(em, handle, ui_top, baseline, rows, scalable, italic)
+    slant = None
+    if scaled and italic:
+        slant = ctypes.c_void_p()
+        if lib.neuronte_open_file(_slant_path().encode(), ctypes.byref(slant)) != 0:
+            lib.neuronte_close(handle)
+            return None
+    return _Size(em, handle, ui_top, baseline, rows, scalable, italic, slant)
 
 
 def _as_text(text):
@@ -369,13 +445,16 @@ def _mask(size, text, bold, mode):
     width = size.width(text, bold)
     if width < 0:
         return None
-    if mode == "1" and width > 0 and size.letters is not None:
+    if (mode == "1" or size.slant) and width > 0 and size.letters is not None:
         im = size.letters.mask(text, bold, width)
         if im is not None:
-            return im.im
+            return im.im if mode == "1" else im.convert("L").im
     if width == 0:
         im = Image.new("1" if mode == "1" else "L", (1, max(1, size.rows)), 0)
         return im.im
+    if size.slant:
+        # Only the kept letters know the shear; a whole-line draw would be upright.
+        return None
     buf_w = width + size.em + 2
     buf_h = size.rows
     buf = (ctypes.c_uint32 * (buf_w * buf_h))()
@@ -450,6 +529,8 @@ def _cells_path(size, italic):
     library = getattr(_lib, "_name", "")
     try:
         weights = _file_digest(weight_path(size.em, italic))
+        if getattr(size, "slant", None):
+            weights += _file_digest(_slant_path())
         code = _digests.get(library)
         if code is None:
             code = _digests[library] = _file_digest(library)
@@ -538,15 +619,24 @@ class _Letters:
             return hit
         size = self.size
         data = ch.encode("utf-8")
-        adv = _lib.neuronte_text_width(size.ptr, data, len(data), 0, size.em)
-        badv = _lib.neuronte_text_width(size.ptr, data, len(data), 1, size.em)
+        measure = size.slant or size.ptr
+        adv = _lib.neuronte_text_width(measure, data, len(data), 0, size.em)
+        badv = _lib.neuronte_text_width(measure, data, len(data), 1, size.em)
         if adv < 0 or badv < 0:
             return None
         buf_w, buf_h = adv + size.em + 2, size.rows
         buf = (ctypes.c_uint32 * (buf_w * buf_h))()
-        if _lib.neuronte_draw_text(
+        if size.slant:
+            # The upright letter's cell, an em wide and two high, sheared at the pen.
+            rc = _lib.neuronte_draw_scalar_styled(
                 size.ptr, ctypes.cast(buf, ctypes.c_void_p), buf_w, buf_w, buf_h,
-                0, -size.ui_top, size.em, 0, data, len(data), 0xFFFFFFFF) < 0:
+                0, -size.ui_top, size.em, 2 * size.em,
+                _lib.neuronte_advance_scalar(size.slant, ord(ch)), 0xFFFFFFFF, 2)
+        else:
+            rc = _lib.neuronte_draw_text(
+                size.ptr, ctypes.cast(buf, ctypes.c_void_p), buf_w, buf_w, buf_h,
+                0, -size.ui_top, size.em, 0, data, len(data), 0xFFFFFFFF)
+        if rc < 0:
             return None
         im = _pack_binary(buf, buf_w, buf_h)
         box = im.getbbox()
