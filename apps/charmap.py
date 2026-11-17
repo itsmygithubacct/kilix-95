@@ -134,7 +134,8 @@ class CharMap(wm.Window):
 
     def draw_client(self, d, img):
         cw, ch = self.client_size()
-        d.text((8, 6), f"Font: DejaVu Sans ({T.PRODUCT_NAME})", font=T.FONT,
+        face = "Neuronte" if T.neuronte_face.ONLY else "DejaVu Sans"
+        d.text((8, 6), f"Font: {face} ({T.PRODUCT_NAME})", font=T.FONT,
                fill=T.TEXT)
         # magnified preview of the active glyph
         px = self.px

@@ -13,7 +13,8 @@ apart. Upright sizes above 32 use the neuronte-ui-large file, with scalable
 bold stroke and matching extra advances of max(1, round(em/32)) pixels.
 A size or style with no file uses the TrueType
 fallback: a .ttf in assets/fonts/ (gitignored) if you supply one, otherwise
-DejaVu Sans, or DejaVu Sans Oblique for italic.
+DejaVu Sans, or DejaVu Sans Oblique for italic. KILIX_NEURONTE_ONLY=1
+opens no font file: see neuronte_face.
 """
 import atexit
 import os
@@ -210,6 +211,10 @@ def font_at(size, bold=False, italic=False):
     hit = _FONT_AT.get(key)
     if hit is not None:
         return hit
+    if neuronte_face.ONLY:
+        # No font file is opened, not even Pillow's built-in one.
+        font = _FONT_AT[key] = neuronte_face.only_font(size, key[1], font_at, italic=key[2])
+        return font
     fallback = _find_font(_style_candidates(key[1], key[2]), size)
     wrapped = neuronte_face.try_font(size, key[1], fallback, font_at,
                                      italic=key[2])

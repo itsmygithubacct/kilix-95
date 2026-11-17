@@ -30,6 +30,14 @@ start, so the first frame does not wait for the net, and saves it.
 anchor ``la`` puts the ascender on the pen: the mask is rows
 ``UI_TOP .. UI_TOP+em-1`` and the offset is ``(0, 0)``. Anchor ``ls`` uses
 the same mask shifted up by the baseline row.
+
+``KILIX_NEURONTE_ONLY=1`` turns the DejaVu fallback off: no font file is
+opened at all. Every size and style is drawn by a Neuronte face (a size or
+slant with no file of its own takes the nearest that has one), and a
+character the face does not cover is drawn, in a terminal cell set on the
+line, by the first terminal bundle trained on it
+(``neuronte-split-v9.nrt``, then each ``neuronte-term-*.nrt``). A character
+none of them was trained on shows the library's own untrained mark.
 """
 
 import array
@@ -44,8 +52,12 @@ import struct
 import threading
 import tempfile
 import time
+import unicodedata
 
 from PIL import Image, ImageChops, ImageFont
+
+# No font file at all: see the module text. Read once, at import.
+ONLY = os.environ.get("KILIX_NEURONTE_ONLY") == "1"
 
 # A Neuronte checkout (build/, weights/, font/, train/): NEURONTE_HOME, or
 # else the installed one beside the other installed sources,
@@ -150,6 +162,22 @@ def _load_library():
             lib.has_styled = True
         lib.neuronte_close.argtypes = [ctypes.c_void_p]
         lib.neuronte_close.restype = None
+        # What a terminal bundle was trained on, its untrained mark, and a
+        # cell's plain coverage: the characters a face does not cover.
+        try:
+            untrained, set_untrained = lib.neuronte_untrained, lib.neuronte_set_untrained
+        except AttributeError:
+            lib.has_untrained = False
+        else:
+            untrained.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            untrained.restype = ctypes.c_int
+            set_untrained.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            set_untrained.restype = ctypes.c_int
+            lib.neuronte_coverage.argtypes = [
+                ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int, ctypes.c_int,
+                ctypes.c_int, ctypes.c_void_p]
+            lib.neuronte_coverage.restype = ctypes.c_int
+            lib.has_untrained = True
         _lib = lib
     except (OSError, AttributeError):
         _lib_failed = True
@@ -285,7 +313,17 @@ class _Size:
         self.baseline = baseline
         self.lock = threading.RLock()
         self._cover = {}
+        self._extra = {}     # scalar -> cell from a terminal bundle (ONLY)
+        self._extra_at = None
         self.letters = None if scalable else _Letters(self, italic)
+
+    def covered(self, ch):
+        # Caller holds self.lock.
+        cp = ord(ch)
+        hit = self._cover.get(cp)
+        if hit is None:
+            hit = self._cover[cp] = _lib.neuronte_advance_scalar(self.ptr, cp) == cp
+        return hit
 
     def covers(self, text):
         # Caller holds self.lock. The handle is not safe to share unlocked.
@@ -300,6 +338,8 @@ class _Size:
         return True
 
     def width(self, text, bold):
+        if ONLY and not self.covers(text):
+            return self.mixed_width(text, bold)
         data = text.encode("utf-8")
         if self.scalable and bold:
             return _lib.neuronte_text_width_stroke(
@@ -308,6 +348,51 @@ class _Size:
 
     def stroke(self, bold):
         return max(1, (self.em + 16) // 32) if self.scalable and bold else int(bool(bold))
+
+    # The rest is for ONLY: a line with characters the face does not cover.
+
+    def runs(self, text):
+        """The text as (covered, string) pieces: a covered piece is a run the
+        face draws, any other is one character."""
+        out, run = [], ""
+        for ch in text:
+            if self.covered(ch):
+                run += ch
+                continue
+            if run:
+                out.append((True, run))
+                run = ""
+            out.append((False, ch))
+        if run:
+            out.append((True, run))
+        return out
+
+    def extra(self, ch):
+        """(advance, bold advance, width, binary image or None, grey image or
+        None) of a character the face does not cover, on this face's rows."""
+        hit = self._extra.get(ord(ch))
+        if hit is None:
+            hit = self._extra[ord(ch)] = _extra_cell(self, ch)
+        return hit
+
+    def mixed_width(self, text, bold):
+        total = 0
+        for covered, piece in self.runs(text):
+            if covered:
+                data = piece.encode("utf-8")
+                if self.scalable and bold:
+                    part = _lib.neuronte_text_width_stroke(
+                        self.ptr, data, len(data), self.stroke(bold), self.em)
+                else:
+                    part = _lib.neuronte_text_width(
+                        self.slant or self.ptr, data, len(data), bold, self.em)
+                if part < 0:
+                    return part
+                total += part
+            else:
+                cell = self.extra(piece)
+                total += cell[1] if bold else cell[0]
+        return total
 
 
 def open_size(em, italic=False):
@@ -430,8 +515,156 @@ def _load(em, italic=False):
 
 def _as_text(text):
     if isinstance(text, bytes):
-        return text.decode("utf-8", "replace")
-    return str(text)
+        text = text.decode("utf-8", "replace")
+    text = str(text)
+    if ONLY and not text.isascii():
+        # A letter and its mark become the one character a bundle may hold.
+        text = unicodedata.normalize("NFC", text)
+    return text
+
+
+_terminal = None     # [handle, ...]: split-v9 first, then each term bundle
+_terminal_lock = threading.RLock()
+
+# Characters that take no room and have no picture: controls, joiners,
+# variation selectors, the byte order mark.
+_NO_PICTURE = (set(range(0x20)) | set(range(0x7F, 0xA0))
+               | {0xAD, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x2060, 0xFEFF}
+               | set(range(0xFE00, 0xFE10)))
+
+
+def terminal_bundles():
+    """The terminal bundles of this tree, in the order they are asked."""
+    names = []
+    try:
+        listed = sorted(os.listdir(_path("weights")))
+    except OSError:
+        listed = []
+    for version in range(20, 6, -1):
+        name = "neuronte-split-v%d.nrt" % version
+        if name in listed:
+            names.append(name)
+            break
+    names += [n for n in listed if re.fullmatch(r"neuronte-term-[a-z0-9-]+-v\d+\.nrt", n)]
+    return [_path("weights", n) for n in names]
+
+
+def _terminal_handles():
+    # Caller holds _terminal_lock.
+    global _terminal
+    if _terminal is None:
+        _terminal = []
+        lib = _library()
+        if lib is not None and lib.has_untrained:
+            for path in terminal_bundles():
+                handle = ctypes.c_void_p()
+                if lib.neuronte_open_file(path.encode(), ctypes.byref(handle)) != 0:
+                    continue
+                if not _terminal:
+                    # The first bundle draws the mark for what none has.
+                    lib.neuronte_set_untrained(handle, 1)
+                _terminal.append(handle)
+    return _terminal
+
+
+def terminal_source(cp):
+    """Which terminal bundle draws this scalar: its index, or -1 when none
+    was trained on it and the first one's untrained mark stands for it."""
+    with _terminal_lock:
+        for index, handle in enumerate(_terminal_handles()):
+            if _lib.neuronte_untrained(handle, cp) == 0:
+                return index
+    return -1
+
+
+def _terminal_cell(cp, cell_w, cell_h):
+    """Coverage of a terminal cell as a mode "L" image, or None."""
+    with _terminal_lock:
+        handles = _terminal_handles()
+        if not handles:
+            return None
+        handle = handles[0]
+        for other in handles[1:]:
+            if _lib.neuronte_untrained(other, cp) == 0:
+                handle = other
+                break
+        buf = (ctypes.c_float * (cell_w * cell_h))()
+        if _lib.neuronte_coverage(handle, cp, cell_w, cell_h, 0, buf) != 0:
+            return None
+    raw = bytes(min(255, max(0, int(v * 255.0 + 0.5))) for v in buf)
+    return Image.frombytes("L", (cell_w, cell_h), raw)
+
+
+def _ink_bottom(im):
+    box = im.point(lambda v: 255 if v >= 128 else 0).getbbox() if im is not None else None
+    return None if box is None else box[3] - 1
+
+
+def _extra_geometry(size):
+    """(cell width, cell height, row of the cell's top on this face's rows).
+
+    The terminal cell is 1 wide and 2 high and its capitals are 0.55 of its
+    height; 0.65 em wide puts them near the face's own. The cell is set so
+    that the two faces' capital H end on the same row.
+    """
+    if size._extra_at is None:
+        cell_w = max(2, int(0.65 * size.em + 0.5))
+        cell_h = 2 * cell_w
+        ours = _mask_image(size, "H", 0, "L")
+        theirs = _terminal_cell(0x48, cell_w, cell_h)
+        a, b = _ink_bottom(ours), _ink_bottom(theirs)
+        if a is None or b is None:
+            a, b = size.baseline, int(0.75 * cell_h) - 1
+        size._extra_at = (cell_w, cell_h, a - b)
+    return size._extra_at
+
+
+def _extra_cell(size, ch):
+    cp = ord(ch)
+    if cp in _NO_PICTURE:
+        return (0, 0, 0, None, None)
+    cell_w, cell_h, top = _extra_geometry(size)
+    wide = unicodedata.east_asian_width(ch) in ("W", "F")
+    advance = (2 * cell_w if wide else cell_w) + 1
+    bold_advance = advance + size.stroke(1)
+    cell = _terminal_cell(cp, cell_w, cell_h)
+    if cell is None:
+        return (advance, bold_advance, 0, None, None)
+    grey = Image.new("L", (cell_w, size.rows), 0)
+    grey.paste(cell, (0, top))
+    bits = grey.point(lambda v: 255 if v >= 128 else 0).convert("1")
+    if bits.getbbox() is None:
+        return (advance, bold_advance, 0, None, None)
+    return (advance, bold_advance, cell_w, bits, grey)
+
+
+def _mixed_image(size, text, bold, mode):
+    """A line with characters the face does not cover (ONLY). Caller holds
+    size.lock."""
+    width = size.mixed_width(text, bold)
+    if width < 0:
+        return None
+    grey = size.scalable
+    out = Image.new("L" if grey else "1", (width + size.em + 2, max(1, size.rows)), 0)
+    pen = 0
+    for covered, piece in size.runs(text):
+        if covered:
+            part = _mask_image(size, piece, bold, "L" if grey else "1")
+            step = size.width(piece, bold)
+            if part is None or step < 0:
+                return None
+            out.paste(255 if grey else 1, (pen, 0), part)
+            pen += step
+            continue
+        adv, badv, w, bits, soft = size.extra(piece)
+        if w:
+            ink = soft if grey else bits
+            for shift in range(size.stroke(bold) + 1):
+                out.paste(255 if grey else 1, (pen + shift, 0), ink)
+        pen += badv if bold else adv
+    if grey or mode == "1":
+        return out
+    return out.convert("L")
 
 
 def _mask(size, text, bold, mode):
@@ -439,8 +672,15 @@ def _mask(size, text, bold, mode):
 
     Caller holds size.lock.
     """
+    im = _mask_image(size, text, bold, mode)
+    return None if im is None else im.im
+
+
+def _mask_image(size, text, bold, mode):
     if size.scalable:
         mode = "L"
+    if ONLY and not size.covers(text):
+        return _mixed_image(size, text, bold, mode)
     data = text.encode("utf-8")
     width = size.width(text, bold)
     if width < 0:
@@ -448,10 +688,9 @@ def _mask(size, text, bold, mode):
     if (mode == "1" or size.slant) and width > 0 and size.letters is not None:
         im = size.letters.mask(text, bold, width)
         if im is not None:
-            return im.im if mode == "1" else im.convert("L").im
+            return im if mode == "1" else im.convert("L")
     if width == 0:
-        im = Image.new("1" if mode == "1" else "L", (1, max(1, size.rows)), 0)
-        return im.im
+        return Image.new("1" if mode == "1" else "L", (1, max(1, size.rows)), 0)
     if size.slant:
         # Only the kept letters know the shear; a whole-line draw would be upright.
         return None
@@ -474,7 +713,7 @@ def _mask(size, text, bold, mode):
     else:
         raw = array.array("B", (px >> 24 for px in buf))
         im = Image.frombytes("L", (buf_w, buf_h), raw.tobytes())
-    return im.im
+    return im
 
 
 _NONZERO = [0] + [255] * 255
@@ -618,6 +857,10 @@ class _Letters:
         if hit is not None:
             return hit
         size = self.size
+        if ONLY and not size.covered(ch):
+            # A terminal bundle's cell. It is kept by the size, not here: the
+            # cells file is named by this face's weights alone.
+            return size.extra(ch)[:4]
         data = ch.encode("utf-8")
         measure = size.slant or size.ptr
         adv = _lib.neuronte_text_width(measure, data, len(data), 0, size.em)
@@ -786,6 +1029,11 @@ class NeuronteFont:
         # This adapter lays out independent supported scalars only. Let the
         # shaped fallback handle a whole request when it asks for a layout
         # feature or outline this renderer cannot honor.
+        if ONLY:
+            # There is no other face: an uncovered character is a terminal
+            # bundle's cell or the untrained mark, and a layout request is
+            # laid left to right like any other.
+            return True
         if (direction is not None or features is not None or language is not None
                 or stroke_width):
             return False
@@ -803,12 +1051,21 @@ class NeuronteFont:
         with self._face.lock:
             return self if self._use_face(_as_text(text)) else self._fallback_font
 
-    def _offset(self, anchor):
+    def _offset(self, anchor, text=None):
         if anchor in (None, "la", "lt"):
             return (0, 0)
         if anchor == "ls":
             return (0, -self._face.baseline)
-        return None
+        if not ONLY or len(anchor) != 2:
+            return None
+        # Every anchor, since no other face can take the request. Caller
+        # holds the face lock.
+        width = max(0, self._face.width(text, self.bold)) if text else 0
+        rows = self._face.rows
+        x = {"l": 0, "m": -(width // 2), "r": -width}.get(anchor[0], 0)
+        y = {"a": 0, "t": 0, "m": -(rows // 2), "s": -self._face.baseline,
+             "b": -rows, "d": -rows}.get(anchor[1], 0)
+        return (x, y)
 
     def getlength(self, text, mode="", direction=None, features=None,
                   language=None):
@@ -817,20 +1074,20 @@ class NeuronteFont:
             if not self._use_face(s, direction, features, language):
                 return self._fallback_font.getlength(
                     s, mode, direction, features, language)
-            return self._face.width(s, self.bold)
+            return max(0, self._face.width(s, self.bold)) if ONLY else self._face.width(s, self.bold)
 
     def getbbox(self, text, mode="", direction=None, features=None,
                 language=None, stroke_width=0, anchor=None):
         s = _as_text(text)
-        off = self._offset(anchor)
         with self._face.lock:
+            off = self._offset(anchor, s)
             if off is None or not self._use_face(s, direction, features, language, stroke_width):
                 return self._fallback_font.getbbox(
                     s, mode, direction, features, language, stroke_width, anchor)
             width = self._face.width(s, self.bold)
         left, top = off
         stroke = int(stroke_width or 0)
-        return (left, top - stroke, left + width + 2 * stroke,
+        return (left, top - stroke, left + max(0, width) + 2 * stroke,
                 top + self._face.rows + stroke)
 
     def getmetrics(self):
@@ -846,14 +1103,19 @@ class NeuronteFont:
                  language=None, stroke_width=0, anchor=None, ink=0,
                  start=None, *args, **kwargs):
         s = _as_text(text)
-        off = self._offset(anchor)
         with self._face.lock:
+            off = self._offset(anchor, s)
             if off is None or not self._use_face(s, direction, features, language, stroke_width):
                 return self._fallback_font.getmask2(
                     s, mode, direction, features, language, stroke_width,
                     anchor, ink, start, *args, **kwargs)
             mask = _mask(self._face, s, self.bold, mode)
             if mask is None:
+                if ONLY:
+                    # Nothing else may draw it: an empty line of the right height.
+                    blank = Image.new("L" if self._face.scalable or mode != "1" else "1",
+                                      (1, max(1, self._face.rows)), 0)
+                    return blank.im, off
                 return self._fallback_font.getmask2(
                     s, mode, direction, features, language, stroke_width,
                     anchor, ink, start, *args, **kwargs)
@@ -861,12 +1123,53 @@ class NeuronteFont:
 
     def font_variant(self, font=None, size=None, index=None, encoding=None,
                      layout_engine=None):
-        if font is not None:
+        if font is not None and not ONLY:
             return self._fallback_font.font_variant(
                 font=font, size=size, index=index, encoding=encoding,
                 layout_engine=layout_engine)
         new = self.size if size is None else int(round(float(size)))
         return self._variant(new, bold=bool(self.bold), italic=self.italic)
+
+
+def _only_open(em, italic):
+    if kind(em, italic) is None:
+        return None
+    face = open_size(em, italic)
+    if face is None or (face.scalable and not _lib.has_stroke):
+        return None
+    return face
+
+
+def only_face(size, italic=False):
+    """ONLY: the face that draws this size and slant. An italic with no file
+    is the upright face of that size; a size with no file is the nearest
+    that has one. (face, True when it is the asked slant), or (None, False)."""
+    size = int(size)
+    if italic:
+        face = _only_open(size, True)
+        if face is not None:
+            return face, True
+    for em in sorted(range(1, 257), key=lambda em: (abs(em - size), em)):
+        face = _only_open(em, False)
+        if face is not None:
+            return face, not italic
+    return None, False
+
+
+def only_font(size, bold, variant, italic=False):
+    """ONLY: a NeuronteFont for any size and style, with no other face
+    behind it. Raises when this tree cannot draw at all."""
+    face, _exact = only_face(size, italic)
+    if face is None or not _library().has_untrained:
+        raise RuntimeError(
+            "KILIX_NEURONTE_ONLY=1, but no Neuronte face can be opened from %r "
+            "(it needs build/libneuronte.so of Neuronte 2.2 or later and weights/)" % _ROOT)
+    return NeuronteFont(size, bold, _face_file(face, italic), face, None, variant, italic)
+
+
+def _face_file(face, italic):
+    path = weight_path(face.em, italic)
+    return path if os.path.isfile(path) else weight_path(face.em, False)
 
 
 def try_font(size, bold, fallback, variant, italic=False):
