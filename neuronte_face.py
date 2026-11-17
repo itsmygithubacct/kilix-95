@@ -36,7 +36,7 @@ opened at all. Every size and style is drawn by a Neuronte face (a size or
 slant with no file of its own takes the nearest that has one), and a
 character the face does not cover is drawn, in a terminal cell set on the
 line, by the first terminal bundle trained on it
-(``neuronte-split-v9.nrt``, then each ``neuronte-term-*.nrt``). A character
+(``neuronte-split-v9.nrt``, then each ``neuronte-term-*.nrt`` and ``neuronte-kilix-*.nrt``). A character
 none of them was trained on shows the library's own untrained mark.
 """
 
@@ -545,7 +545,7 @@ def terminal_bundles():
         if name in listed:
             names.append(name)
             break
-    names += [n for n in listed if re.fullmatch(r"neuronte-term-[a-z0-9-]+-v\d+\.nrt", n)]
+    names += [n for n in listed if re.fullmatch(r"neuronte-(term|kilix)-[a-z0-9-]+-v\d+\.nrt", n)]
     return [_path("weights", n) for n in names]
 
 
