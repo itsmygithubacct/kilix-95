@@ -25,11 +25,24 @@ def require(ready, why):
 
 _TO_L = bytes.maketrans(b"#.", b"\x00\xff")
 
+# What a face with all of Latin-1 draws: printable ASCII, the ellipsis and
+# U+00A0..U+00FF.
+LATIN1 = "".join(chr(c) for c in range(0xA0, 0x100))
+FULL = "".join(chr(c) for c in range(0x20, 0x7F)) + "\u2026" + LATIN1
+
+
+def latin1_tree(em, italic=False):
+    """True where the file the desktop opens for this em draws all of Latin-1."""
+    name = os.path.basename(neuronte_face.weight_path(em, italic))
+    return name.endswith("-v2.nrt") or name == "neuronte-ui-scaled-latin1-v1.nrt"
+
 
 def drawing(em, italic=False):
-    """{char: (advance, rows)} from font/ui-EM.txt or its italic."""
+    """{char: (advance, rows)} from the drawing of the face the desktop opens:
+    font/ui-EM-latin1.txt beside a -v2 file, font/ui-EM.txt beside an earlier
+    one, or their italics."""
     rows, ch = {}, None
-    path = neuronte_face._path("font", "ui-%d%s.txt" % (em, "-italic" if italic else ""))
+    path = neuronte_face._face_path(em, italic)
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             line = line.rstrip("\n")
@@ -100,7 +113,9 @@ def check_scaled(em, italic=False, chars=None):
         assert lib.neuronte_open_file(neuronte_face._slant_path().encode(),
                                       ctypes.byref(steps)) == 0
     try:
-        for ch in (neuronte_face.COMMON if chars is None else chars):
+        if chars is None:
+            chars = FULL if latin1_tree(em, italic) else neuronte_face.COMMON
+        for ch in chars:
             data = ch.encode("utf-8")
             for strike, font in ((0, regular), (1, bold)):
                 adv = lib.neuronte_text_width(steps, data, len(data), strike, em)
@@ -139,6 +154,11 @@ def check(em, italic=False, chars=None):
     if neuronte_face.kind(em, italic) == "scaled":
         return check_scaled(em, italic, chars)
     art = drawing(em, italic)
+    if latin1_tree(em, italic):
+        # A -v2 face is checked against its Latin-1 drawing, all 192.
+        assert os.path.basename(neuronte_face._face_path(em, italic)).startswith(
+            "ui-%d-latin1" % em), (em, italic)
+        assert sorted(art) == sorted(FULL), (em, italic, len(art))
     regular = T.font_at(em, bold=False, italic=italic)
     bold = T.font_at(em, bold=True, italic=italic)
     assert isinstance(regular, neuronte_face.NeuronteFont), (em, italic)

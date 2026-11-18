@@ -1,15 +1,22 @@
 """Neuronte desktop face for Kilix 95.
 
 Binary weights through 32 px, and a blended scalable upright face above.
-One weight file per small em: ``neuronte-ui{em}-v1.nrt``, and for italic
-``neuronte-ui{em}-italic-v1.nrt``; a tree that has only the earlier ``-v0``
-files is read the same way. A tree with no file for an em from 17 to 32
-but with ``neuronte-ui-scaled-v0.nrt``, or the ``-latin1`` file that adds
-the accented letters, draws that em with it: one design
+One weight file per small em: ``neuronte-ui{em}-v2.nrt``, and for italic
+``neuronte-ui{em}-italic-v2.nrt``, which draw ASCII, the ellipsis and all of
+Latin-1 (192 characters) from the drawing ``font/ui-{em}-latin1.txt`` (italic
+``font/ui-{em}-latin1-italic.txt``); a tree that has only the earlier
+ASCII-only ``-v1`` files, with ``font/ui-{em}.txt``, or ``-v0``, is read the
+same way. A tree with no file for an em from 17 to 32 but with a scaled
+file draws that em with it: ``neuronte-ui-scaled-latin1-v1.nrt`` (all of
+Latin-1), else ``neuronte-ui-scaled-latin1-v0.nrt`` (the accented letters),
+else ``neuronte-ui-scaled-v0.nrt``: one design
 scaled, its stems snapped to whole pixels by the library, binary like the
 small faces and kept letter by letter the same way. Its italic is the
-upright letter sheared by the library and stepped by
-``neuronte-ui-scaled-italic-advances-v0.nrt``. Small bold is the letter struck twice,
+upright letter sheared by the library and stepped by that file's table of
+italic advances (``neuronte-ui-scaled-latin1-italic-advances-v1.nrt``,
+``-latin1-italic-advances-v0`` or ``-italic-advances-v0``). Above 32 px the
+face is ``neuronte-ui-large-latin1-v2.nrt``, else the earlier large files.
+Small bold is the letter struck twice,
 one pixel to the right. Scalable bold dilates ink by round(em/32) pixels
 and adds exactly that many pixels to each regular advance. A size or style with no file is
 DejaVu (DejaVu Oblique for italic). A string with a character the file
@@ -242,8 +249,15 @@ def _read_private(path, limit):
 
 
 def _face_path(em, italic):
-    return _path("font",
-                        "ui-%d%s.txt" % (em, "-italic" if italic else ""))
+    """The drawing of this em's own face: the Latin-1 drawing beside a -v2
+    file, the ASCII drawing beside the earlier ones."""
+    slant = "-italic" if italic else ""
+    if os.path.basename(weight_path(em, italic)).endswith("-v2.nrt"):
+        latin1 = _path("font", "ui-%d-latin1%s.txt" % (em, slant))
+        # Its ASCII and its header are the earlier drawing's, byte for byte.
+        if os.path.isfile(latin1):
+            return latin1
+    return _path("font", "ui-%d%s.txt" % (em, slant))
 
 
 def _header(em, italic=False):
@@ -346,23 +360,28 @@ def _first(*names):
     return paths[0]
 
 
+# Each scaled file, newest first, with the table of italic advances that
+# belongs to it. Every one draws the same ASCII; the later ones add Latin-1.
+_SCALED = (("neuronte-ui-scaled-latin1-v1.nrt", "neuronte-ui-scaled-latin1-italic-advances-v1.nrt"),
+           ("neuronte-ui-scaled-latin1-v0.nrt", "neuronte-ui-scaled-latin1-italic-advances-v0.nrt"),
+           ("neuronte-ui-scaled-v0.nrt", "neuronte-ui-scaled-italic-advances-v0.nrt"))
+
+
 def _scaled_path():
-    # The file with the Latin-1 letters where a tree has it: the same ASCII.
-    return _first("neuronte-ui-scaled-latin1-v0.nrt", "neuronte-ui-scaled-v0.nrt")
+    return _first(*(face for face, _ in _SCALED))
 
 
 def _slant_path():
-    if os.path.basename(_scaled_path()) == "neuronte-ui-scaled-latin1-v0.nrt":
-        return _path("weights", "neuronte-ui-scaled-latin1-italic-advances-v0.nrt")
-    return _path("weights", "neuronte-ui-scaled-italic-advances-v0.nrt")
+    face = os.path.basename(_scaled_path())
+    return _path("weights", dict(_SCALED)[face])
 
 
 def weight_path(em, italic=False):
     if int(em) >= 33 and not italic:
-        return _first("neuronte-ui-large-latin1-v1.nrt", "neuronte-ui-large-v1.nrt",
-                      "neuronte-ui-large-v0.nrt")
+        return _first("neuronte-ui-large-latin1-v2.nrt", "neuronte-ui-large-latin1-v1.nrt",
+                      "neuronte-ui-large-v1.nrt", "neuronte-ui-large-v0.nrt")
     own = newest("neuronte-ui%d%s" % (int(em), "-italic" if italic else ""),
-                 (1, 0))
+                 (2, 1, 0))
     if int(em) in SCALED and not os.path.isfile(own):
         scaled = _scaled_path()
         if scaled and os.path.isfile(scaled) and (

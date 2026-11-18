@@ -4,7 +4,8 @@ import harness as H
 from PIL import ImageFont, features
 import neuronte_face as N
 import theme as T
-from neuronte_face_check import require
+import os
+from neuronte_face_check import LATIN1, latin1_tree, require
 
 require(all(N.open_size(em, italic) for em, italic in ((11, False), (16, True), (64, False)))
         and N._library().has_stroke,
@@ -25,6 +26,12 @@ for em, italic in ((11,False),(16,True),(64,False)):
         assert font._use_face('A\u00e9B') == accented, (em, italic, accented)
         if not accented:
             assert font.getlength('A\u00e9B') == fallback.getlength('A\u00e9B')
+        # A face with all of Latin-1 draws every one of the 96 itself.
+        if latin1_tree(em, italic) or (em >= 33 and os.path.basename(N.weight_path(em)) ==
+                                       'neuronte-ui-large-latin1-v2.nrt'):
+            with size.lock:
+                assert size.covers(LATIN1), (em, italic)
+            assert font._use_face('x' + LATIN1 + 'y'), (em, italic)
         for text in clusters:
             assert not font._use_face(text)
             assert font.getlength(text) == fallback.getlength(text)

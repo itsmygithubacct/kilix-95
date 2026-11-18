@@ -19,6 +19,13 @@ class TextGeometry:
         self.height = 13 if self.field else widget.LH
         self.length = sum(map(len, self.lines)) + len(self.lines) - 1
 
+    def line_font(self, line):
+        """The font the widget draws this whole line with. A Neuronte face
+        draws a line with a character it lacks wholly with its fallback, so a
+        substring it does cover must be measured with that fallback too."""
+        select = getattr(self.font, 'for_text', None)
+        return select(line) if select else self.font
+
     def context(self):
         w = self.widget
         return [*self.origin, w.x, w.y, w.w, w.h,
@@ -37,15 +44,16 @@ class TextGeometry:
         w = self.widget
         x, y = w.text_origin() if self.field else w.text_origin(row)
         line = self.lines[row]
-        left = T.text_w(self.font, line[:start])
-        right = T.text_w(self.font, line[:end])
+        font = self.line_font(line)
+        left = T.text_w(font, line[:start])
+        right = T.text_w(font, line[:end])
         if end > start:
             # A glyph can overhang its advance (including a missing-glyph box).
             # Keep the logical cell while enclosing the same font's drawn ink.
-            ink_left, _, ink_right, _ = self.font.getbbox(line[start:end])
+            ink_left, _, ink_right, _ = font.getbbox(line[start:end])
             # PIL keeps fractional advances while rendering the whole string.
             # Prefix integer widths alone can miss its final rasterized pixel.
-            advance = self.font.getlength if hasattr(self.font, 'getlength') else lambda s: T.text_w(self.font, s)
+            advance = font.getlength if hasattr(font, 'getlength') else lambda s: T.text_w(font, s)
             prefix = advance(line[:start])
             contextual = advance(line[:end]) - advance(line[start:end])
             right = max(right, math.ceil(max(prefix, contextual) + ink_right))
@@ -89,7 +97,8 @@ class TextGeometry:
         line = self.lines[row]
         if not ty <= y < ty + self.height or not line:
             return -1
-        if not 0 <= px < T.text_w(self.font, line):
+        font = self.line_font(line)
+        if not 0 <= px < T.text_w(font, line):
             # First/last glyph ink may extend beyond the logical advance.
             col = 0 if px < 0 else len(line) - 1
             bx, _, bw, _ = self.box(row, col, col + 1)
@@ -99,7 +108,7 @@ class TextGeometry:
         lo, hi = 0, len(line)
         while lo < hi:
             mid = (lo + hi) // 2
-            if T.text_w(self.font, line[:mid + 1]) <= px:
+            if T.text_w(font, line[:mid + 1]) <= px:
                 lo = mid + 1
             else:
                 hi = mid
