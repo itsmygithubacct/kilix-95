@@ -1,0 +1,27 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Kilix 95
+Source: https://github.com/itsmygithubacct/kilix-95
+
+Files: *
+Copyright: 2026 itsmygithubacct
+License: GPL-3
+
+Files: assets/sounds/*
+Copyright: 2026 itsmygithubacct
+License: GPL-3
+Comment: The startup and shutdown chimes are excerpts of instrumental music
+ generated from project-written prompts; assets/sounds/PROVENANCE.md, installed
+ in /usr/share/doc/kilix-95, records their sources and digests.
+
+License: GPL-3
+ This program is free software: you can redistribute it and/or modify it
+ under the terms of the GNU General Public License as published by the Free
+ Software Foundation, version 3 of the License.
+ .
+ This program is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ details.
+ .
+ On Debian systems the full text of the GNU General Public License version 3
+ can be found in /usr/share/common-licenses/GPL-3.

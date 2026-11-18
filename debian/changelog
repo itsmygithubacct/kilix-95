@@ -1,0 +1,7 @@
+kilix-95 (0.2.3+packaging1) UNRELEASED; urgency=medium
+
+  * Add the kilix-95 package: the default Kilix desktop in /usr/share/kilix-95.
+  * Find the Plebian-OS helpers and the Pleb recovery guide at their packaged
+    paths, and offer Update kilix on a packaged Kilix.
+
+ -- itsmygithubacct <itsmygithubacct@users.noreply.github.com>  Wed, 18 Nov 2026 01:45:00 +0000

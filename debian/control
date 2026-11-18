@@ -1,0 +1,21 @@
+Source: kilix-95
+Section: x11
+Priority: optional
+Maintainer: itsmygithubacct <itsmygithubacct@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Homepage: https://github.com/itsmygithubacct/kilix-95
+Rules-Requires-Root: no
+
+Package: kilix-95
+Architecture: all
+Depends: kilix, python3, python3-pil, python3-xlib, ${misc:Depends}
+Recommends: python3-gi, gir1.2-glib-2.0
+Description: Kilix 95, the default Kilix desktop
+ Kilix 95 is a desktop drawn as pixels inside a Kilix pane: a taskbar and
+ Start menu, windows, a file manager, settings, small applications and games,
+ in the style of a late-1990s desktop.
+ .
+ This package installs it under /usr/share/kilix-95, where the kilix launcher
+ finds it when no provider checkout is configured. Its settings, caches and
+ state stay in each user's home.
