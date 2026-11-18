@@ -9,7 +9,7 @@ import wm
 PAD, GAP, COLS = 6, 5, 6
 DISP_H, TOP_H = 30, 26
 
-_BIG = T._find_font(T._candidates(False), 18)   # big right-aligned readout
+_BIG = T.font_at(18)   # big right-aligned readout
 
 _DIV0 = "Cannot divide by zero"
 _BADIN = "Invalid input"

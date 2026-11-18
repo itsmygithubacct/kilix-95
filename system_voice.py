@@ -19,15 +19,16 @@ def offer_enabled():
     return override == '1' if override is not None else os.path.isfile('/etc/plebian-os/build-info.env')
 
 
-# First run installs this voice with no question. It does not turn the
-# greeting on, and it does not download Piper Kristin.
+# A launcher other than Kilix still installs Female-02. The Kilix launcher
+# asks the wizard, which selects Paradee on a fresh install and leaves an
+# existing selection alone. Neither path downloads Piper Kristin.
 DEFAULT_VOICE_ARGS = ('--install=kilix-female-02', '--set', 'engine=piper', '--set', 'voice=kilix-female-02')
 # The newest first-run install's output, in the desktop's private state.
 DEFAULT_VOICE_LOG = 'default-voice.log'
 
 
 def default_voice_command(target):
-    """Install kilix-female-02. The Kilix launcher uses the wizard's no-op check."""
+    """Install the fresh-install voice. The Kilix launcher uses the wizard."""
     if os.path.basename(target[0]) == 'kilix':
         return [target[0], 'wizard', 'install-default-voice']
     return [*target, *DEFAULT_VOICE_ARGS]
@@ -61,7 +62,7 @@ class Controller:
         self.state = state
 
     def install_default_voice(self):
-        """Select kilix-female-02. A missing launcher does not enable the greeting.
+        """Select the fresh-install voice. A missing launcher does not enable the greeting.
 
         The desktop draws into this process's terminal, so the installer's
         output goes to the private state log, never to inherited stdio, and it
@@ -157,7 +158,7 @@ class Controller:
             self.status = f'Could not start system voice: {error}'
             self.open()
             return
-        self.status = 'Loading kilix-female-02…'
+        self.status = 'Loading system voice…'
 
     def tick(self, _now):
         if self.job:
@@ -190,6 +191,8 @@ class Controller:
                 self.stop()
                 self.status = 'System voice stopped. ' + (text.strip().splitlines()[-1] if text.strip() else f'Exit {code}.')
                 self.open()
+            elif 'System voice ready: paradee ' in text:
+                self.status = 'Paradee is ready for this session.'
             elif 'System voice ready: kilix-female-02' in text:
                 self.status = 'kilix-female-02 is ready for this session.'
             elif 'System voice ready: Piper Kristin' in text:

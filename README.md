@@ -4,12 +4,11 @@ A Windows 95-style desktop rendered as **pixels** inside a Kilix pane, with an
 optional Windows XP-style flavor.
 
 **Status:** ships in Plebian-OS as the default desktop provider. Plebian-OS
-0.2.3 (release candidate `v0.2.3-rc6`) pins `KILIX95_REF=44525e24` in
+0.2.3 pins `KILIX95_REF=42b2fc54` (the `v0.2.3` tag) in
 `releases/0.2.3.env`; [Pleb](https://github.com/itsmygithubacct/pleb#readme)
 clones that commit to `~/.local/gpu_terminal/sources/kilix-desktops/kilix-95`
 and the login session opens it as page 1. The latest published release is
-`v0.2.2` (Plebian-OS 0.2.2). This `main` branch contains the RC6 pin and
-carries `VERSION` 0.2.3.
+`v0.2.3` (Plebian-OS 0.2.3), which this `main` branch contains.
 
 Kilix 95 is the release-default desktop provider in the four-repository
 Plebian-OS core. Kilix Cap, Kilix TUI, and Kilix Land are additional optional

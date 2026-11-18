@@ -10,6 +10,7 @@ the desktop and file manager) so they stay crisp and chunky at both sizes.
 """
 from PIL import Image, ImageDraw
 import os
+import neuronte_flame
 
 # the 16-color palette (single-char keys used by the drawing code)
 K = (0, 0, 0)
@@ -951,6 +952,10 @@ def get(name, size=32, shortcut=False):
         p = P(u)
         ICONS.get(name, _doc)(p)
         img = p.img
+        if name == "flame":
+            neural = neuronte_flame.image(size)
+            if neural is not None:
+                img = neural
         if name and os.path.isabs(name):
             try:
                 with Image.open(name) as source:

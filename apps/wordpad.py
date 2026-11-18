@@ -1,6 +1,7 @@
 """kilix desktop — WordPad. Real rich text: paragraphs of styled runs, drawn
-word-wrapped with the correct DejaVu variant per run (no antialiasing, manual
-underline). Bold/Italic/Underline/size/colour apply to the selection or the
+word-wrapped per run (manual underline). A packed size uses
+the Neuronte face, and italic its italic file; a size or style with no weight
+file stays DejaVu or DejaVu oblique. Bold/Italic/Underline/size/colour apply to the selection or the
 caret's typing style; documents round-trip losslessly through a JSON .krt and
 flatten to plain .txt."""
 import json
@@ -38,13 +39,16 @@ def _font(bold, italic, size):
     key = (bool(bold), bool(italic), max(1, min(int(size), MAX_SIZE)))
     f = _FONTS.get(key)
     if f is None:
-        suff = {(0, 0): "", (1, 0): "-Bold", (0, 1): "-Oblique",
-                (1, 1): "-BoldOblique"}[(int(bool(bold)), int(bool(italic)))]
-        f = T._find_font(["DejaVuSans%s.ttf" % suff,
-                          "/usr/share/fonts/truetype/dejavu/DejaVuSans%s.ttf"
-                          % suff], key[2])
+        f = T.font_at(key[2], bold=key[0], italic=key[1])
         _FONTS[key] = f
     return f
+
+
+def _run_font(run):
+    """Choose a face once for the full styled run, even for sliced text."""
+    font = _font(run["bold"], run["italic"], run["size"])
+    select = getattr(font, "for_text", None)
+    return select(run["text"]) if select else font
 
 
 def _run(text, style):
@@ -343,7 +347,7 @@ class RichTextArea(W.Widget):
         return max(8, self.w - T.SCROLL_W - 8)
 
     def _measure(self, para, a, b):
-        return sum(T.text_w(_font(r["bold"], r["italic"], r["size"]), t)
+        return sum(T.text_w(_run_font(r), t)
                    for r, t in _segments(para, a, b))
 
     def _wrap_para(self, para, maxw):
@@ -381,7 +385,7 @@ class RichTextArea(W.Widget):
             for a, b in self._wrap_para(para, maxw):
                 asc = desc = 0
                 for r, _ in _segments(para, a, b):
-                    am, dm = _font(r["bold"], r["italic"], r["size"]).getmetrics()
+                    am, dm = _run_font(r).getmetrics()
                     asc, desc = max(asc, am), max(desc, dm)
                 if asc == 0:
                     asc, desc = _font(False, False, 11).getmetrics()
@@ -411,7 +415,7 @@ class RichTextArea(W.Widget):
         para = self.paras[vl["pi"]]
         xs, offs, base, pos = [0], [vl["a"]], 0, vl["a"]
         for r, txt in _segments(para, vl["a"], vl["b"]):
-            f = _font(r["bold"], r["italic"], r["size"])
+            f = _run_font(r)
             for j in range(1, len(txt) + 1):
                 xs.append(base + T.text_w(f, txt[:j]))
                 offs.append(pos + j)
@@ -477,7 +481,7 @@ class RichTextArea(W.Widget):
             # runs
             x = 0
             for r, txt in _segments(para, vl["a"], vl["b"]):
-                f = _font(r["bold"], r["italic"], r["size"])
+                f = _run_font(r)
                 cd.text((x, baseline), txt, font=f, fill=r["color"],
                         anchor="ls")
                 wpx = T.text_w(f, txt)
@@ -493,7 +497,7 @@ class RichTextArea(W.Widget):
                     sb = min(bc if vl["pi"] == br else vl["b"], vl["b"])
                     xx = self._x_of(vl, sa)
                     for r, txt in _segments(para, sa, sb):
-                        f = _font(r["bold"], r["italic"], r["size"])
+                        f = _run_font(r)
                         cd.text((xx, baseline), txt, font=f, fill=T.SEL_TX,
                                 anchor="ls")
                         wpx = T.text_w(f, txt)
@@ -560,7 +564,10 @@ class RichTextArea(W.Widget):
             self.sb.clamp()
             self.invalidate()
             return True
-        pi, off = self._hit(lx, ly)
+        if (ev.press and ev.btn == 1) or (ev.move and (ev.btn & 1)):
+            # _hit measures every caret position on the line; a buttonless
+            # hover uses none of them.
+            pi, off = self._hit(lx, ly)
         if ev.press and ev.btn == 1:
             self._move(pi, off, ev.shift)
             if not ev.shift:

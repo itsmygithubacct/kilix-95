@@ -1,8 +1,8 @@
 """browse.Term.read_input regressions: F14 (non-CSI escape sequences must be
 consumed, never leaked as paste), W03 (SGR-pixel coords are 0-based), plus
-focused F00/F47 checks and the F00 keypad follow-up (functional-PUA keys must
-never carry text into kilix browse). All assertions FAIL on the pre-fix
-parser."""
+focused F00/F47 checks and the F00 keypad follow-up (the parser keeps a
+functional-PUA key text-less; browse types a NumLock keypad digit). All
+assertions FAIL on the pre-fix parser."""
 import os
 import harness as H
 
@@ -89,19 +89,103 @@ for kp in (57399, 57405, 57408, 57409, 57414, 57417, 57424, 57426):
 assert feed(b"\x1b[233;129u")[0]["text"] == "é"    # NumLock + é: real text kept
 assert feed(b"\x1b[8364;1u")[0]["text"] == "€"     # non-PUA above ASCII still text
 
-# the browse surface itself: a NumLock keypad press must reach neither Chrome
-# (as keyDown text) nor the URL bar — drive the real handlers with a stub CDP.
+# The parser stays text-less (above). The browse handlers translate the
+# functional code into a DOM numpad key before Chrome or the URL bar see it,
+# so a NumLock keypad 6 types "6" and a keypad arrow does not. A functional
+# key that is not on the keypad still types nothing.
 import browse
 sent = []
 pg = object.__new__(browse.Browse)
 pg.cdp = type("C", (), {"send": lambda self, *a, **k: sent.append(a)})()
 pg.sess = None
-kp_ev = feed(b"\x1b[57405;129u")[0]                # KP under NumLock, as parsed
+kp_ev = feed(b"\x1b[57405;129u")[0]                # KP_6 under NumLock, as parsed
+assert kp_ev["text"] == ""
 pg.url_edit = None
 pg.on_key(kp_ev)                                   # focused web input
-assert sent and all("text" not in payload for _, payload in sent), sent
+assert sent and sent[0][1]["text"] == "6", sent
+assert sent[0][1]["key"] == "6" and sent[0][1]["code"] == "Numpad6", sent
+assert all(payload.get("key") != kp_ev["key"] for _, payload in sent)
 pg.url_edit = ""
 pg.url_edit_key(kp_ev)                             # URL bar
+assert pg.url_edit == "6", repr(pg.url_edit)
+sent.clear()
+nav = feed(b"\x1b[57417;1u")[0]                    # KP Left, no NumLock
+assert nav["text"] == ""
+pg.url_edit = None
+pg.on_key(nav)
+assert sent and "text" not in sent[0][1], sent
+assert sent[0][1]["key"] == "ArrowLeft" and sent[0][1]["code"] == "Numpad4"
+pg.url_edit = ""
+pg.url_edit_key(nav)
 assert pg.url_edit == "", repr(pg.url_edit)
+sent.clear()
+other = feed(b"\x1b[57344;129u")[0]                # functional key, not keypad
+assert other["text"] == ""
+pg.url_edit = None
+pg.on_key(other)
+assert sent and all("text" not in payload for _, payload in sent), sent
+pg.url_edit = "keep"
+pg.url_edit_key(other)
+assert pg.url_edit == "keep", repr(pg.url_edit)
+
+# The parser's functional code is not text, but the browser translates it to
+# a real DOM key. Kitty distinguishes KP_6 (57405) from KP_RIGHT (57418):
+# the former MUST type 6, the latter MUST navigate without inserting text.
+# Lock LEDs do not change a key identity already resolved by the terminal.
+# Assert exact Chrome payloads and URL-bar edits through the real handlers,
+# without deriving expected values from the production keypad table.
+keypad_cases = [
+    (57399 + i, str(i), "Numpad%d" % i, 96 + i, str(i))
+    for i in range(10)
+] + [
+    (57409, ".", "NumpadDecimal", 110, "."),
+    (57410, "/", "NumpadDivide", 111, "/"),
+    (57411, "*", "NumpadMultiply", 106, "*"),
+    (57412, "-", "NumpadSubtract", 109, "-"),
+    (57413, "+", "NumpadAdd", 107, "+"),
+    (57415, "=", "NumpadEqual", 187, "="),
+    (57416, ",", "NumpadComma", 108, ","),
+    (57417, "ArrowLeft", "Numpad4", 37, ""),
+    (57418, "ArrowRight", "Numpad6", 39, ""),
+    (57419, "ArrowUp", "Numpad8", 38, ""),
+    (57420, "ArrowDown", "Numpad2", 40, ""),
+    (57421, "PageUp", "Numpad9", 33, ""),
+    (57422, "PageDown", "Numpad3", 34, ""),
+    (57423, "Home", "Numpad7", 36, ""),
+    (57424, "End", "Numpad1", 35, ""),
+    (57425, "Insert", "Numpad0", 45, ""),
+    (57426, "Delete", "NumpadDecimal", 46, ""),
+    (57427, "Clear", "Numpad5", 12, ""),
+]
+for number, key, code, vk, text in keypad_cases:
+    for mods in (1, 65, 129, 193):
+        kp_ev = feed(b"\x1b[%d;%du" % (number, mods))[0]
+        raw = dict(kp_ev)
+        assert kp_ev["text"] == "", (number, mods, kp_ev)
+        sent.clear()
+        pg.url_edit = None
+        pg.on_key(kp_ev)
+        expected = {"modifiers": 0, "key": key, "code": code,
+                    "windowsVirtualKeyCode": vk}
+        down = {"type": "keyDown", **expected}
+        if text:
+            down["text"] = text
+        assert sent == [
+            ("Input.dispatchKeyEvent", down),
+            ("Input.dispatchKeyEvent", {"type": "keyUp", **expected}),
+        ], (number, mods, sent)
+        sent.clear()
+        pg.url_edit = "https://example.test/"
+        pg.on_key(kp_ev)
+        assert pg.url_edit == "https://example.test/" + text, (number, mods, pg.url_edit)
+        assert sent == [], sent
+        assert kp_ev == raw, (number, mods, kp_ev)  # translation never mutates parser events
+
+# KP_Enter submits the URL; it must not append a PUA character or CR to it.
+sent.clear()
+pg.url_edit = "example.test/6"
+pg.on_key(feed(b"\x1b[57414;129u")[0])
+assert pg.url_edit is None
+assert sent == [("Page.navigate", {"url": "https://example.test/6"})], sent
 
 print("ok")
