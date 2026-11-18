@@ -516,10 +516,13 @@ def _pack_binary(buf, buf_w, buf_h):
     return any_ink.point(_NONZERO, "1")
 
 
-# What the small faces cover, most used first: printable ASCII and the
-# ellipsis. start_letters draws these ahead of need.
+# What every small face covers, most used first: printable ASCII and the
+# ellipsis. start_letters draws these ahead of need, then LATIN1.
 COMMON = ("etaoinsrhldcumfpgwybvkxjqz ETAOINSRHLDCUMFPGWYBVKXJQZ"
           "0123456789.:,-_/()'\"&!?+*=%#@;<>[]{}|\\~^`$\u2026")
+# U+00A0..U+00FF. A face that covers them (the -v2 faces of Neuronte 2.5.0)
+# has them drawn at start too, after COMMON; an ASCII face has none drawn.
+LATIN1 = "".join(chr(cp) for cp in range(0xA0, 0x100))
 
 
 # The cells of one small face on disk. After the magic, each cell is its
@@ -623,9 +626,17 @@ class _Letters:
         self._atlas = bytearray()
         self._records = bytearray()
         self._c = None        # ctypes copies of the two, made when a letter is added
+        self._wanted = None
+
+    def wanted(self):
+        """What start_letters draws ahead of need, in order: COMMON, then
+        the characters of LATIN1 this face covers. Caller holds the lock."""
+        if self._wanted is None:
+            self._wanted = COMMON + "".join(ch for ch in LATIN1 if self.size.covers(ch))
+        return self._wanted
 
     def complete(self):
-        return all(ord(ch) in self.cells for ch in COMMON)
+        return all(ord(ch) in self.cells for ch in self.wanted())
 
     def save(self):
         """Write the cells if any is new. A failed write is ignored."""
@@ -733,7 +744,9 @@ class _Letters:
 
 def _draw_letters(sizes):
     for size in sizes:
-        for ch in COMMON:
+        with size.lock:
+            chars = size.letters.wanted()
+        for ch in chars:
             with size.lock:
                 size.letters.cell(ch)
             # A Python lock is not fair: taking it again at once kept the
@@ -756,8 +769,8 @@ def save_letters():
 
 
 def start_letters(fonts):
-    """Draw the common characters of these fonts' small faces on a thread,
-    then save them.
+    """Draw what these fonts' small faces want ahead of need (COMMON, then
+    the Latin-1 a face covers) on a thread, then save them.
 
     Returns the thread, or None when there is nothing to draw: a face whose
     cells file was read is complete already. The desktop does not wait for

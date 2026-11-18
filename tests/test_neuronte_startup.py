@@ -59,8 +59,8 @@ for em in (10, 11):
     size = N.open_size(em)
     # COMMON is what an ASCII face covers, so the start-up thread draws
     # every letter such a face can be asked for and nothing it cannot. A
-    # face with all of Latin-1 (-v2) covers U+00A0..U+00FF as well; those
-    # are drawn when first asked for and kept like the rest.
+    # face with all of Latin-1 (-v2) covers U+00A0..U+00FF as well, and the
+    # start-up thread draws those too, after COMMON.
     covered = {chr(cp) for cp in range(0x3000)
                if N._lib.neuronte_advance_scalar(size.ptr, cp) == cp}
     want = set(N.COMMON) | (set(LATIN1) if latin1_tree(em) else set())
@@ -86,6 +86,8 @@ if thread is not None:
     assert not thread.is_alive()
 for font in (T.FONT, T.SMALL):
     assert {ord(ch) for ch in N.COMMON} <= set(font._face.letters.cells)
+    if latin1_tree(font._face.em):
+        assert {ord(ch) for ch in N.LATIN1} <= set(font._face.letters.cells), font._face.em
 # FONT and BOLD share one face: it is drawn once.
 assert T.FONT._face is T.BOLD._face
 # A scalable face keeps the library path.

@@ -31,7 +31,7 @@ os.umask(0)
 import harness as H  # noqa: E402,F401  (isolated storage before the desktop imports)
 import neuronte_face as N  # noqa: E402
 import theme as T  # noqa: E402
-from neuronte_face_check import ITALIC, UPRIGHT, require  # noqa: E402
+from neuronte_face_check import ITALIC, UPRIGHT, latin1_tree, require  # noqa: E402
 
 require(all(N.open_size(em) for em in (10, 11)), "no Neuronte 10px or 11px weights")
 
@@ -67,6 +67,15 @@ def reopen(em, italic=False):
     size = N.open_size(em, italic)
     assert size is not None, (em, italic)
     return size
+
+
+def start_set(size, italic):
+    """What the start-up thread draws for this face: COMMON, then the
+    Latin-1 it covers (all 96 on a -v2 face, none on an ASCII one)."""
+    with size.lock:
+        start = size.letters.wanted()
+    assert start == N.COMMON + (N.LATIN1 if latin1_tree(size.em, italic) else ""), (size.em, italic)
+    return start
 
 
 def warm(size):
@@ -148,10 +157,11 @@ for em, italic in faces:
                 for text in corpus for bold in (0, 1)}
 
     # First run: the thread draws the set through the net and saves it.
+    start = start_set(size, italic)
     calls[0] = 0
     assert warm(size)
-    assert calls[0] == len(N.COMMON), calls[0]
-    assert set(size.letters.cells) == COMMON
+    assert calls[0] == len(start), calls[0]
+    assert set(size.letters.cells) == {ord(ch) for ch in start}
     path = size.letters.path
     # One file for the face, regular and bold; no temporary file is left.
     files.append(os.path.basename(path))
@@ -162,7 +172,7 @@ for em, italic in faces:
     drawn = plain(size.letters.cells)
     # The file is the documented format and nothing else.
     assert data == build(drawn)
-    assert len(drawn) == 96
+    assert len(drawn) == len(start)
     for key, value in want.items():
         assert cell_mask(size, *key) == value, (em, italic, key)
 
@@ -306,7 +316,7 @@ def falls_back(label):
     assert size.letters.path == path
     assert size.letters.cells == {}, label
     assert warm(size), label
-    assert calls[0] == len(N.COMMON), (label, calls[0])
+    assert calls[0] == len(start_set(size, italic)), (label, calls[0])
     for key, value in want.items():
         assert cell_mask(size, *key) == value, (label, key)
     assert not os.path.islink(path) and open(path, "rb").read() == data, label
@@ -377,7 +387,7 @@ try:
         calls[0] = 0
         size = reopen(em, italic)
         assert size.letters.path == "" and size.letters.cells == {}
-        assert warm(size) and calls[0] == len(N.COMMON)
+        assert warm(size) and calls[0] == len(start_set(size, italic))
         N.save_letters()
         for key, value in want.items():
             assert cell_mask(size, *key) == value, key
@@ -426,7 +436,7 @@ for bold in (0, 1):
     assert cell_mask(size, used, bold) == good[em2, italic2][2][used, bold]
 assert calls[0] == 0
 assert warm(size)
-assert calls[0] == len(N.COMMON) - len(set(used))
+assert calls[0] == len(start_set(size, italic2)) - len(set(used))
 assert open(size.letters.path, "rb").read() == good[em2, italic2][1]
 
 
