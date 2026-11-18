@@ -83,6 +83,39 @@ assert _labels(scripts.submenu) == ["install-go.sh"], _labels(scripts.submenu)
 assert all(callable(it.action) for it in items if it.submenu is None
            and it.label != "-")
 
+# Plebian-OS 0.2.4 packages: a packaged Kilix (PACKAGED marker, no .git)
+# still offers its update, and the stack helpers are found at the packaged
+# paths, never at both.
+items = run_case(
+    present_files={
+        os.path.join(KH, "kilix"),
+        os.path.join(KH, "PACKAGED"),
+        "/usr/bin/plebian-os-update",
+        "/usr/sbin/plebian-os-install-deps",
+        "/usr/sbin/plebian-os-ssh-server",
+        "/usr/local/sbin/plebian-os-install-deps",
+    },
+    present_dirs=set(),
+    dir_listing={},
+    expect=["Update kilix", "Update Plebian-OS (kilix + pleb)",
+            "Reinstall dependencies", "Remote login (SSH)"])
+ran = []
+saved = DESK.shell.run_maintenance
+DESK.shell.run_maintenance = lambda cmd, title: ran.append((cmd, title))
+try:
+    for it in items:
+        if it.submenu is None and it.label != "-":
+            it.action()
+    for it in [i for i in items if i.label == "Remote login (SSH)"][0].submenu:
+        it.action()
+finally:
+    DESK.shell.run_maintenance = saved
+commands = " ".join(cmd for cmd, _ in ran)
+assert '"/usr/bin/plebian-os-update"' in commands or "/usr/bin/plebian-os-update" in commands, ran
+assert 'sudo "/usr/sbin/plebian-os-install-deps"' in commands, ran
+assert "/usr/sbin/plebian-os-ssh-server" in commands, ran
+assert "/usr/local/" not in commands, ran
+
 # Plebian-OS 0.2.3 with the SSH server helper: one submenu, three launchers
 # running the same helper (sudo for the two that change anything).
 SSH = "/usr/local/sbin/plebian-os-ssh-server"
