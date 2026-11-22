@@ -14,7 +14,10 @@ class AmpModelSetup:
         self.desk = desk
         self.model_root = model_root
         self.pending = None
-        self.directory = tempfile.TemporaryDirectory(prefix='kilix-amp-')
+        # AF_UNIX addresses are bounded. A long TMPDIR must not prevent media playback.
+        runtime = f'/run/user/{os.getuid()}'
+        parent = runtime if os.access(runtime, os.W_OK | os.X_OK) else '/tmp'
+        self.directory = tempfile.TemporaryDirectory(prefix='kilix-amp-', dir=parent)
         self.path = os.path.join(self.directory.name, 'setup')
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         try:
@@ -32,6 +35,8 @@ class AmpModelSetup:
             self.socket.close()
             self.directory.cleanup()
         self.pending = None
+        if getattr(self.desk, 'amp_setup_prompt', None) is self:
+            self.desk.amp_setup_prompt = None
 
     def reply(self, peer, success):
         if self.socket.fileno() >= 0:
@@ -47,15 +52,17 @@ class AmpModelSetup:
             return
         if data not in PROFILES or not peer:
             return
-        if self.pending is not None:
+        if getattr(self.desk, 'amp_setup_prompt', None) is not None:
             self.reply(peer, False)
             return
         self.pending = peer
+        self.desk.amp_setup_prompt = self
         asset, label = PROFILES[data]
 
         def finished(success):
             if self.pending == peer:
                 self.pending = None
+                self.desk.amp_setup_prompt = None
                 self.reply(peer, success)
 
         def answered(choice):

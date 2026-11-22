@@ -10,7 +10,10 @@ from apps.amp_model_setup import AmpModelSetup
 with H.desktop_dir() as temporary:
     desk = H.make_desk()
     store = Path(temporary) / 'unused-model-store'
-    host = AmpModelSetup(desk, str(store))
+    long_tmp = Path(temporary) / ('t' * 95)
+    long_tmp.mkdir()
+    with patch('tempfile.tempdir', str(long_tmp)):
+        host = AmpModelSetup(desk, str(store))
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as player:
             player.bind('')
@@ -24,6 +27,16 @@ with H.desktop_dir() as temporary:
                 assert '48 kHz stereo' in dialog.widgets[0].text
                 assert '228.0 MiB' in dialog.widgets[0].text
                 assert not store.exists()
+                other = AmpModelSetup(desk, str(store))
+                try:
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as second:
+                        second.bind('')
+                        second.settimeout(1)
+                        second.sendto(bytes([2]), other.path)
+                        other.receive()
+                        assert second.recv(2) == bytes([0]) and desk.wm.active is dialog
+                finally:
+                    other.close()
                 dialog.request_close()
                 assert player.recv(2) == bytes([0])
                 launch.assert_not_called()

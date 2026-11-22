@@ -124,8 +124,12 @@ def _spawn(desk, exe, path=None):
             from kilix_sdk._content_runtime import apps_root
             from .amp_model_setup import AmpModelSetup
             environment["KILIX_ENCODEC_MODEL_ROOT"] = apps_root()
-            setup = AmpModelSetup(desk, environment["KILIX_ENCODEC_MODEL_ROOT"])
-            environment["KILIX_AMP_MODEL_SETUP_SOCKET"] = setup.path
+            try:
+                setup = AmpModelSetup(desk, environment["KILIX_ENCODEC_MODEL_ROOT"])
+            except OSError:
+                pass  # Amp can still play and direct the user to Model Setup.
+            else:
+                environment["KILIX_AMP_MODEL_SETUP_SOCKET"] = setup.path
         desk.wm.add(xpane.XPane(
             desk, cmd, "Media Player", icon="amp",
             # no app_size: the region fills the desktop working area, so the
