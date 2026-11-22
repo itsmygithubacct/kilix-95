@@ -84,11 +84,10 @@ def child_path(base, name):
 
 IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".ppm",
            ".tiff")
-# what the media player (kilix-amp, via libsndfile) can open, plus common
-# audio kinds it will at least try; playlists open there too
+# Files opened in Media Player, including native EnCodec and playlists.
 AUDIO_EXT = (".mp3", ".flac", ".ogg", ".oga", ".opus", ".wav", ".aiff",
              ".aif", ".aifc", ".m4a", ".aac", ".wma", ".m3u", ".m3u8",
-             ".pls")
+             ".pls", ".kenc")
 
 WALL_COLORS = [("Teal (classic)", (0, 128, 128)),
                ("XP Blue", (58, 110, 165)), ("Navy", (0, 0, 128)),

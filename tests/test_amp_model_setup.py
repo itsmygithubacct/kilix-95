@@ -9,6 +9,13 @@ from apps.amp_model_setup import AmpModelSetup
 
 with H.desktop_dir() as temporary:
     desk = H.make_desk()
+    import icons
+    track = Path(temporary) / 'track.KENC'
+    track.write_bytes(b'KENC')
+    with patch.object(desk.shell, 'open_app') as open_app:
+        desk.shell.open_path(str(track))
+        open_app.assert_called_once_with('amp', str(track))
+    assert icons.for_path(str(track)) == 'doc_audio'
     store = Path(temporary) / 'unused-model-store'
     long_tmp = Path(temporary) / ('t' * 95)
     long_tmp.mkdir()

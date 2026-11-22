@@ -1002,7 +1002,7 @@ def for_path(path, is_dir=False):
         return "doc_text"
     if low.endswith((".mp3", ".flac", ".ogg", ".oga", ".opus", ".wav",
                      ".aiff", ".aif", ".aifc", ".m4a", ".aac", ".wma",
-                     ".m3u", ".m3u8", ".pls")):
+                     ".m3u", ".m3u8", ".pls", ".kenc")):
         return "doc_audio"
     if low.endswith(".desktop"):
         return "exe"
