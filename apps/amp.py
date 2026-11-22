@@ -117,7 +117,15 @@ def _spawn(desk, exe, path=None):
     _seed_chimes()
     cmd = [exe] + ([os.path.abspath(os.path.expanduser(path))] if path
                    else [])
+    setup = None
     try:
+        environment = _runtime_env()
+        if exe == '/usr/bin/kilix-amp':
+            from kilix_sdk._content_runtime import apps_root
+            from .amp_model_setup import AmpModelSetup
+            environment["KILIX_ENCODEC_MODEL_ROOT"] = apps_root()
+            setup = AmpModelSetup(desk, environment["KILIX_ENCODEC_MODEL_ROOT"])
+            environment["KILIX_AMP_MODEL_SETUP_SOCKET"] = setup.path
         desk.wm.add(xpane.XPane(
             desk, cmd, "Media Player", icon="amp",
             # no app_size: the region fills the desktop working area, so the
@@ -125,8 +133,9 @@ def _spawn(desk, exe, path=None):
             # (EQ / playlist) are never clipped
             # private, persistent config: window layout survives sessions and
             # never collides with a user-level kilix-amp install
-            env=_runtime_env(),
-            cwd=d))
+            env=environment, cwd=d, cleanup=setup.close if setup else None))
     except Exception as e:
+        if setup:
+            setup.close()
         wm.msgbox(desk, "Media Player",
                   f"Could not open Media Player:\n{e}", icon="error")

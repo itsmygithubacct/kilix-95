@@ -1,3 +1,10 @@
+kilix-95 (0.2.3+packaging4) UNRELEASED; urgency=medium
+
+  * Open EnCodec first-use setup inside the desktop and share prepared models
+    with the player.
+
+ -- itsmygithubacct <itsmygithubacct@users.noreply.github.com>  Sun, 22 Nov 2026 23:03:00 +0000
+
 kilix-95 (0.2.3+packaging3) UNRELEASED; urgency=medium
 
   * Require the packaged Kilix GUI supervisor, Xvfb and xauth for the

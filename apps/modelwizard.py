@@ -150,6 +150,8 @@ class ModelWizard(wm.Window):
         if not answered and not busy and not self.error:
             rows = [row for row in self.page['models'] if row['id'] in self.selected]
             download = sum(row['download_bytes'] for row in rows)
+            if self.selected.intersection(self.page.get('converter_models', ())):
+                download += self.page.get('converter_bytes') or 0
             peak = sum(row['installed_bytes'] for row in rows) + max((row['temporary_bytes'] for row in rows), default=0)
             free = self.page.get('disk_available_bytes')
             self.status.set(f'Selected: {backend.size_text(download)} download; up to {backend.size_text(peak)} disk.'

@@ -70,7 +70,7 @@ class Transcript(W.TextArea):
 
 
 class LicenceTerminal(wm.Window):
-    def __init__(self, desk, command, *, log_path=None):
+    def __init__(self, desk, command, *, log_path=None, on_done=None):
         super().__init__(desk, 'Model licence agreements', 740, 485,
                          icon='terminal', resizable=True)
         self.min_w, self.min_h = 480, 300
@@ -81,6 +81,7 @@ class LicenceTerminal(wm.Window):
         self.master, slave = pty.openpty()
         self.process = None
         self.finished = False
+        self.on_done = on_done
         self.answered_at = -1
         self.password_answered_at = -1
         self.prompt = False
@@ -252,11 +253,18 @@ class LicenceTerminal(wm.Window):
             self.yes.enabled = self.no.enabled = False
             self.note.set('Setup complete.' if self.process.returncode == 0 else
                           'Setup did not finish. Your choices are saved for retry.')
+            self.complete(self.process.returncode == 0)
             self.close_button.text = 'Close'
             self.invalidate()
         self.update_input()
 
+    def complete(self, success):
+        callback, self.on_done = getattr(self, 'on_done', None), None
+        if callback:
+            callback(success)
+
     def cleanup(self):
+        self.complete(False)
         from workflows_offer import stop
         if getattr(self, 'password', None) is not None:
             self.password.set('')
@@ -285,7 +293,7 @@ class LicenceTerminal(wm.Window):
                     self.prompt_tail = b''
 
 
-def open_window(desk, command, *, log_path=None):
-    window = LicenceTerminal(desk, command, log_path=log_path)
+def open_window(desk, command, *, log_path=None, on_done=None):
+    window = LicenceTerminal(desk, command, log_path=log_path, on_done=on_done)
     desk.wm.add(window)
     return window
