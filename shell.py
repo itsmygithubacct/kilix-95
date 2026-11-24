@@ -793,7 +793,7 @@ class Shell:
         local = os.path.join(os.path.expanduser("~"), ".local", "bin", name)
         return local if os.access(local, os.X_OK) else None
 
-    def _tab(self, argv, title, cwd=None, env=None):
+    def _tab(self, argv, title, cwd=None, env=None, hold=False):
         kitten = self._kitten()
         if not kitten or not os.environ.get("KITTY_LISTEN_ON"):
             wm.msgbox(self.desk, "kilix", "Cannot reach kilix remote control\n"
@@ -811,9 +811,11 @@ class Shell:
         env_args = []
         for k, v in (env or {}).items():
             env_args.extend(["--env", f"{k}={v}"])
+        # --hold keeps a one-shot command's last words on screen.
         return self._popen([*self._kitten_remote(kitten, "launch"),
                             "--type=tab", "--self", "--tab-title",
                             title, "--cwd", cwd or os.path.expanduser("~"),
+                            *(["--hold"] if hold else []),
                             *env_args, "--"]
                            + argv)
 
@@ -1151,6 +1153,35 @@ class Shell:
     def open_kilix_cameras(self):
         """Open the camera manager inside the desktop, including diagnostics."""
         return self.open_catalog_application("kilix-camera-manager")
+
+    LLAMA_VERBS = {
+        "chat": "Local Model Chat",
+        "status": "llama.cpp Status",
+        "update": "Update llama.cpp",
+        "rollback": "Roll Back llama.cpp",
+        "install": "Install llama.cpp",
+    }
+
+    def open_kilix_llama(self, verb="chat"):
+        """Local models on llama.cpp, through `kilix llama`.
+
+        Always the Kilix launcher, never a kilix-llm found on PATH: `kilix
+        llama` installs the kilix-llm this Kilix pins, on first use and again
+        when the pin moves, and kilix-llm builds llama.cpp on its first chat.
+        So every row works on a machine that has neither yet. The tab holds,
+        because status, update and rollback are one-shot commands whose
+        answer is the point."""
+        if verb not in self.LLAMA_VERBS:
+            raise ValueError(f"unknown llama.cpp action {verb!r}")
+        kilix = os.path.join(KILIX_HOME, "kilix")
+        title = self.LLAMA_VERBS[verb]
+        if not (os.path.isfile(kilix) and os.access(kilix, os.X_OK)):
+            wm.msgbox(self.desk, title,
+                      "The Kilix launcher that installs llama.cpp could not "
+                      "be found.", icon="error")
+            return False
+        return self._tab([kilix, "llama", verb], title,
+                         os.path.expanduser("~"), hold=True)
 
     def open_kilix_bonsai(self):
         """The BitNet model store: browse, download, and verify local models.
