@@ -87,6 +87,11 @@ def model_records(assets, decisions, *, local_models=None):
         if binary := executable("kilix-bonsai-image", "KILIX_BONSAI_PREFIX"):
             rows.append(command_record("bonsai-image", "Bonsai Image Generation",
                                        "paint", [binary]))
+        # bonsai-enlarge: the same weights, image to image. Its argv opens the
+        # composer TUI; arguments would make it the command line instead.
+        if binary := executable("kilix-bonsai-enlarge", "KILIX_BONSAI_PREFIX"):
+            rows.append(command_record("bonsai-enlarge", "Bonsai Image Enlarge",
+                                       "doc_image", [binary]))
     if groups.get("chat"):
         # Bonsai's chat cannot open a kilix-llm GGUF, so that asset alone adds
         # no Bonsai row.
