@@ -22,15 +22,27 @@ def interfaces_require_models_and_respect_declines():
         assert [r["id"] for r in empty] == ["model-store"]
         rows, _ = A.model_records(assets, {}, local_models={"sample:1b": {}})
         by_id = {r["id"]: r for r in rows}
-        assert {"bonsai-image", "llm-chat", "avatar", "whisper"} <= by_id.keys()
+        assert {"bonsai-image", "bonsai-enlarge", "llm-chat", "avatar", "whisper"} <= by_id.keys()
+        assert by_id["bonsai-enlarge"]["argv"] == ("/bin/kilix-bonsai-enlarge",)
+        assert by_id["bonsai-enlarge"]["label"] == "Bonsai Image Enlarge"
+        assert by_id["bonsai-enlarge"]["icon"] == "doc_image"
         assert by_id["whisper"]["argv"][-1] == "--audio"
         assert by_id["avatar"]["argv"][-2:] == ("--model", "sample:1b")
         rows, _ = A.model_records(assets, {"image": {"answer": "no"},
                                            "system-local-llm": {"answer": "no"}},
                                  local_models={"sample:1b": {}})
-        assert not {"bonsai-image", "avatar"} & {r["id"] for r in rows}
+        assert not {"bonsai-image", "bonsai-enlarge", "avatar"} & {r["id"] for r in rows}
     with patch.object(A, "executable", return_value=None):
         assert not A.model_records(assets, {}, local_models={"sample:1b": {}})[0]
+    # An older kilix-bonsai without the enlarge command keeps the image row only.
+    with patch.object(A, "executable", side_effect=lambda name, *a, **kw:
+                      None if name == "kilix-bonsai-enlarge" else "/bin/" + name):
+        ids = {r["id"] for r in A.model_records(assets, {}, local_models={})[0]}
+        assert "bonsai-image" in ids and "bonsai-enlarge" not in ids
+    # Without image weights there is nothing to enlarge with.
+    with patch.object(A, "executable", side_effect=lambda name, *a, **kw: "/bin/" + name):
+        ids = {r["id"] for r in A.model_records(assets[1:], {}, local_models={})[0]}
+        assert "bonsai-enlarge" not in ids
 
 
 def no_loop_gguf_adds_kilix_llm_chat_and_avatar_beside_existing_rows():
