@@ -1,0 +1,41 @@
+kilix-95 (0.2.3+packaging6) UNRELEASED; urgency=medium
+
+  * Open EnCodec files from the file manager in Media Player.
+
+ -- itsmygithubacct <itsmygithubacct@users.noreply.github.com>  Sun, 22 Nov 2026 23:29:00 +0000
+
+kilix-95 (0.2.3+packaging5) UNRELEASED; urgency=medium
+
+  * Keep Media Player usable with a long temporary directory and show one
+    model setup prompt across desktop player windows.
+
+ -- itsmygithubacct <itsmygithubacct@users.noreply.github.com>  Sun, 22 Nov 2026 23:25:00 +0000
+
+kilix-95 (0.2.3+packaging4) UNRELEASED; urgency=medium
+
+  * Open EnCodec first-use setup inside the desktop and share prepared models
+    with the player.
+
+ -- itsmygithubacct <itsmygithubacct@users.noreply.github.com>  Sun, 22 Nov 2026 23:03:00 +0000
+
+kilix-95 (0.2.3+packaging3) UNRELEASED; urgency=medium
+
+  * Require the packaged Kilix GUI supervisor, Xvfb and xauth for the
+    embedded Media Player and other XPane applications.
+
+ -- itsmygithubacct <itsmygithubacct@users.noreply.github.com>  Sun, 22 Nov 2026 13:07:43 +0000
+
+kilix-95 (0.2.3+packaging2) UNRELEASED; urgency=medium
+
+  * Open the packaged Media Player inside the desktop and preserve explicitly
+    configured source installations.
+
+ -- itsmygithubacct <itsmygithubacct@users.noreply.github.com>  Sun, 22 Nov 2026 11:24:32 +0000
+
+kilix-95 (0.2.3+packaging1) UNRELEASED; urgency=medium
+
+  * Add the kilix-95 package: the default Kilix desktop in /usr/share/kilix-95.
+  * Find the Plebian-OS helpers and the Pleb recovery guide at their packaged
+    paths, and offer Update kilix on a packaged Kilix.
+
+ -- itsmygithubacct <itsmygithubacct@users.noreply.github.com>  Wed, 18 Nov 2026 01:45:00 +0000

@@ -1,10 +1,7 @@
 """kilix desktop — Media Player: kilix-amp (Winamp 2.x clone) in an XPane.
 
-Unlike the games (which live in kilix tabs), the media player opens INSIDE
-the desktop: an SDL2 app on a private X server, streamed into a kilix 95
-window. First run clones and builds github.com/itsmygithubacct/kilix-amp
-via the InstallerWindow; the layout/config it saves is kept in Kilix 95's
-private XDG roots so it never fights the user's own kilix-amp setup.
+Packaged desktops launch the installed player. A configured source install
+uses the content catalog. Both run inside the same private XPane.
 """
 import os
 
@@ -30,7 +27,17 @@ def _runtime_env():
 
 def open_amp(desk, path=None):
     import games
-    exe = games.amp_ready()
+    config = games.load()
+    exe = None
+    if not config.get("kilix-amp", "dir", fallback="") and os.path.isfile(
+            os.path.join(games.KILIX_HOME, "PACKAGED")):
+        from kilix_sdk._content_runtime import packaged_amp
+        try:
+            exe = packaged_amp(games.KILIX_HOME)
+        except FileNotFoundError as error:
+            wm.msgbox(desk, "Media Player", str(error), icon="amp")
+            return
+    exe = exe or games.amp_ready(config)
     if exe:
         _spawn(desk, exe, path)
         return
@@ -105,12 +112,24 @@ def _spawn(desk, exe, path=None):
                   "executable did not pass its readiness check.",
                   icon="error")
         return
-    d = os.path.dirname(exe)
+    d = os.path.dirname(os.path.realpath(exe))
     _seed_sample(d)
     _seed_chimes()
     cmd = [exe] + ([os.path.abspath(os.path.expanduser(path))] if path
                    else [])
+    setup = None
     try:
+        environment = _runtime_env()
+        if exe == '/usr/bin/kilix-amp':
+            from kilix_sdk._content_runtime import apps_root
+            from .amp_model_setup import AmpModelSetup
+            environment["KILIX_ENCODEC_MODEL_ROOT"] = apps_root()
+            try:
+                setup = AmpModelSetup(desk, environment["KILIX_ENCODEC_MODEL_ROOT"])
+            except OSError:
+                pass  # Amp can still play and direct the user to Model Setup.
+            else:
+                environment["KILIX_AMP_MODEL_SETUP_SOCKET"] = setup.path
         desk.wm.add(xpane.XPane(
             desk, cmd, "Media Player", icon="amp",
             # no app_size: the region fills the desktop working area, so the
@@ -118,8 +137,9 @@ def _spawn(desk, exe, path=None):
             # (EQ / playlist) are never clipped
             # private, persistent config: window layout survives sessions and
             # never collides with a user-level kilix-amp install
-            env=_runtime_env(),
-            cwd=d))
+            env=environment, cwd=d, cleanup=setup.close if setup else None))
     except Exception as e:
+        if setup:
+            setup.close()
         wm.msgbox(desk, "Media Player",
                   f"Could not open Media Player:\n{e}", icon="error")

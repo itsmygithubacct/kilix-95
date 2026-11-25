@@ -40,7 +40,23 @@ import xdgapps
 
 _here = os.path.dirname(os.path.abspath(__file__))
 KILIX_HOME = kilix_host.find_kilix_home()
-PLEB_RECOVERY_DOC = "/usr/local/share/doc/pleb/RECOVERY.md"
+# Packaged locations first (Plebian-OS 0.2.4 Debian packages), then the
+# /usr/local paths a checkout install writes. Each is a tuple searched in order.
+PLEB_RECOVERY_DOC = "/usr/share/pleb/RECOVERY.md"
+PLEB_RECOVERY_DOC_LEGACY = "/usr/local/share/doc/pleb/RECOVERY.md"
+PLEBIAN_OS_UPDATE = ("/usr/bin/plebian-os-update", "/usr/local/bin/plebian-os-update")
+PLEBIAN_OS_INSTALL_DEPS = ("/usr/sbin/plebian-os-install-deps",
+                           "/usr/local/sbin/plebian-os-install-deps")
+PLEBIAN_OS_SSH_SERVER = ("/usr/sbin/plebian-os-ssh-server",
+                         "/usr/local/sbin/plebian-os-ssh-server")
+
+
+def first_present(paths):
+    """The first of PATHS that exists, or None."""
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    return None
 
 OPEN_MODES = ["kilix tab", "kilix os-window", "kilix fullscreen",
               "kilix run (X11 app)", "web browser"]
@@ -68,11 +84,10 @@ def child_path(base, name):
 
 IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".ppm",
            ".tiff")
-# what the media player (kilix-amp, via libsndfile) can open, plus common
-# audio kinds it will at least try; playlists open there too
+# Files opened in Media Player, including native EnCodec and playlists.
 AUDIO_EXT = (".mp3", ".flac", ".ogg", ".oga", ".opus", ".wav", ".aiff",
              ".aif", ".aifc", ".m4a", ".aac", ".wma", ".m3u", ".m3u8",
-             ".pls")
+             ".pls", ".kenc")
 
 WALL_COLORS = [("Teal (classic)", (0, 128, 128)),
                ("XP Blue", (58, 110, 165)), ("Navy", (0, 0, 128)),
@@ -1427,6 +1442,7 @@ class Shell:
             os.path.expanduser("~/.local/gpu_terminal/sources")
         candidates = [os.environ.get("PLEB_RECOVERY_DOC_DST"),
                       PLEB_RECOVERY_DOC,
+                      PLEB_RECOVERY_DOC_LEGACY,
                       os.path.join(source_home, "pleb", "docs", "RECOVERY.md")]
         result = []
         for path in candidates:
@@ -1448,7 +1464,7 @@ class Shell:
             "The Pleb recovery guide is not installed.\n\n"
             f"Expected: {PLEB_RECOVERY_DOC}\n\n"
             "If `pleb update` reports that libxxhash is missing, run:\n"
-            "sudo /usr/local/sbin/plebian-os-install-deps\n"
+            f"sudo {first_present(PLEBIAN_OS_INSTALL_DEPS) or PLEBIAN_OS_INSTALL_DEPS[0]}\n"
             "pleb update\n\n"
             "If that helper is unavailable, install the immediate dependency:\n"
             "sudo apt-get update\n"
@@ -1654,9 +1670,11 @@ class Shell:
                               action=lambda c=cmd, t=title:
                               self.run_maintenance(c, t))
 
-        # kilix, when this is a git checkout with the launcher
+        # kilix, when this is a git checkout with the launcher, or a packaged
+        # Kilix, where `kilix update` upgrades the Kilix packages with apt
         kilix = os.path.join(KILIX_HOME, "kilix")
-        if os.path.isdir(os.path.join(KILIX_HOME, ".git")) \
+        if (os.path.isdir(os.path.join(KILIX_HOME, ".git"))
+                or os.path.exists(os.path.join(KILIX_HOME, "PACKAGED"))) \
                 and os.path.exists(kilix):
             items.append(launcher(f'"{kilix}" update', "Update kilix"))
         # pleb, when the session manager is present
@@ -1665,11 +1683,11 @@ class Shell:
             items.append(launcher(f'"{pleb}" update',
                                   "Update Pleb (kilix + session)"))
         # the whole Plebian-OS stack + dependency reinstall, when installed
-        pos = "/usr/local/bin/plebian-os-update"
-        if os.path.exists(pos):
+        pos = first_present(PLEBIAN_OS_UPDATE)
+        if pos:
             items.append(launcher(pos, "Update Plebian-OS (kilix + pleb)"))
-        deps = "/usr/local/sbin/plebian-os-install-deps"
-        if os.path.exists(deps):
+        deps = first_present(PLEBIAN_OS_INSTALL_DEPS)
+        if deps:
             if items:
                 items.append(W.MenuItem("-"))
             items.append(launcher(f'sudo "{deps}"', "Reinstall dependencies",
@@ -1679,8 +1697,8 @@ class Shell:
         # asks for the password there, as it does for the dependency reinstall.
         # Turning it on asks first in that tab, so a machine whose sudo needs
         # no password still never opens SSH from one click.
-        ssh = "/usr/local/sbin/plebian-os-ssh-server"
-        if os.path.exists(ssh):
+        ssh = first_present(PLEBIAN_OS_SSH_SERVER)
+        if ssh:
             if items:
                 items.append(W.MenuItem("-"))
             items.append(W.MenuItem("Remote login (SSH)", icon="network", submenu=[
@@ -1926,8 +1944,9 @@ class Shell:
     def _best_update_command(self):
         """The most complete updater present: the whole-stack script, else
         `pleb update`, else `kilix update`."""
-        if os.path.exists("/usr/local/bin/plebian-os-update"):
-            return "/usr/local/bin/plebian-os-update"
+        pos = first_present(PLEBIAN_OS_UPDATE)
+        if pos:
+            return pos
         source_home = os.environ.get("GPU_TERMINAL_SOURCE_HOME") or \
             os.path.expanduser("~/.local/gpu_terminal/sources")
         pleb = os.path.join(

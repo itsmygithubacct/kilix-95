@@ -81,6 +81,10 @@ old_source_home = os.environ.get("GPU_TERMINAL_SOURCE_HOME")
 try:
     os.path.exists = lambda p: p == "/usr/local/bin/plebian-os-update"
     assert d.shell._best_update_command() == "/usr/local/bin/plebian-os-update"
+    # The packaged updater (Plebian-OS 0.2.4 packages) wins over a checkout's.
+    os.path.exists = lambda p: p in ("/usr/bin/plebian-os-update",
+                                     "/usr/local/bin/plebian-os-update")
+    assert d.shell._best_update_command() == "/usr/bin/plebian-os-update"
     source_home = "/tmp/gpu-terminal-source-fixture"
     os.environ["GPU_TERMINAL_SOURCE_HOME"] = source_home
     os.path.exists = lambda p: p == source_home + "/pleb/bin/pleb"
