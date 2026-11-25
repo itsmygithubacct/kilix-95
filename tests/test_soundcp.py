@@ -112,7 +112,7 @@ import games
 old_ready = games.amp_ready
 old_xpane = amp_mod.xpane.XPane
 try:
-    games.amp_ready = lambda: "/bin/true"
+    games.amp_ready = lambda *_args, **_kw: "/bin/true"
 
     def boom(*_args, **_kw):
         raise RuntimeError("no xvfb")
