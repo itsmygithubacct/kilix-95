@@ -23,9 +23,9 @@ try:
 
         # Nothing there: the later name, which the caller then finds missing.
         have()
-        assert name(N.weight_path(12)) == "neuronte-ui12-v1.nrt"
+        assert name(N.weight_path(12)) == "neuronte-ui12-v2.nrt"
         assert not os.path.isfile(N.weight_path(12))
-        # The slim set.
+        # The slim set of 2.4.0.
         have("neuronte-ui12-v1.nrt", "neuronte-ui12-italic-v1.nrt", "neuronte-flame-v1.nrt")
         assert name(N.weight_path(12)) == "neuronte-ui12-v1.nrt"
         assert name(N.weight_path(12, True)) == "neuronte-ui12-italic-v1.nrt"
@@ -38,9 +38,71 @@ try:
         # Both: the later one.
         have("neuronte-ui12-v0.nrt", "neuronte-ui12-v1.nrt")
         assert name(N.weight_path(12)) == "neuronte-ui12-v1.nrt"
-        # The scalable face has one generation; an italic above 32 has no file.
+        # The face above 32 px: the later file, or the earlier where that is
+        # all a tree has. An italic above 32 has no file.
+        assert name(N.weight_path(40)) == "neuronte-ui-large-latin1-v2.nrt"
+        assert N.kind(40) is None
+        have("neuronte-ui-large-v0.nrt")
         assert name(N.weight_path(40)) == "neuronte-ui-large-v0.nrt"
-        assert name(N.weight_path(40, True)) == "neuronte-ui40-italic-v1.nrt"
+        assert N.kind(40) == "large"
+        have("neuronte-ui-large-v0.nrt", "neuronte-ui-large-v1.nrt")
+        assert name(N.weight_path(40)) == "neuronte-ui-large-v1.nrt"
+        assert name(N.weight_path(40, True)) == "neuronte-ui40-italic-v2.nrt"
+        assert N.kind(40, True) is None
+        # One scaled file draws 17 to 32 px where an em has no file of its own.
+        have("neuronte-ui-scaled-v0.nrt", "neuronte-ui12-v1.nrt", "neuronte-ui20-v1.nrt")
+        assert name(N.weight_path(24)) == "neuronte-ui-scaled-v0.nrt" and N.kind(24) == "scaled"
+        assert name(N.weight_path(17)) == "neuronte-ui-scaled-v0.nrt"
+        assert name(N.weight_path(32)) == "neuronte-ui-scaled-v0.nrt"
+        assert name(N.weight_path(20)) == "neuronte-ui20-v1.nrt" and N.kind(20) == "pixel"
+        assert name(N.weight_path(12)) == "neuronte-ui12-v1.nrt" and N.kind(12) == "pixel"
+        assert name(N.weight_path(16)) == "neuronte-ui16-v2.nrt" and N.kind(16) is None
+        assert name(N.weight_path(33)) == "neuronte-ui-large-latin1-v2.nrt"
+        # Its italic needs the table of italic advances beside it.
+        assert name(N.weight_path(24, True)) == "neuronte-ui24-italic-v2.nrt"
+        assert N.kind(24, True) is None
+        have("neuronte-ui-scaled-v0.nrt", "neuronte-ui-scaled-italic-advances-v0.nrt")
+        assert name(N.weight_path(24, True)) == "neuronte-ui-scaled-v0.nrt"
+        assert N.kind(24, True) == "scaled"
+        # The files with the Latin-1 letters come first, each with its own table.
+        have("neuronte-ui-scaled-v0.nrt", "neuronte-ui-scaled-italic-advances-v0.nrt",
+             "neuronte-ui-scaled-latin1-v0.nrt", "neuronte-ui-large-v1.nrt",
+             "neuronte-ui-large-latin1-v1.nrt")
+        assert name(N.weight_path(24)) == "neuronte-ui-scaled-latin1-v0.nrt"
+        assert N.kind(24) == "scaled" and N.kind(24, True) is None
+        assert name(N.weight_path(40)) == "neuronte-ui-large-latin1-v1.nrt"
+        have("neuronte-ui-scaled-latin1-v0.nrt", "neuronte-ui-scaled-latin1-italic-advances-v0.nrt")
+        assert name(N.weight_path(24, True)) == "neuronte-ui-scaled-latin1-v0.nrt"
+        assert os.path.basename(N._slant_path()) == "neuronte-ui-scaled-latin1-italic-advances-v0.nrt"
+        assert N.kind(24, True) == "scaled"
+        # The files with all of Latin-1 (Neuronte 2.5.0) come before every
+        # earlier one, each scaled file with its own italic table, and the
+        # small faces read the Latin-1 drawing beside a -v2 file.
+        have("neuronte-ui12-v1.nrt", "neuronte-ui12-v2.nrt", "neuronte-ui12-italic-v1.nrt",
+             "neuronte-ui12-italic-v2.nrt", "neuronte-ui-scaled-latin1-v0.nrt",
+             "neuronte-ui-scaled-latin1-italic-advances-v0.nrt", "neuronte-ui-scaled-latin1-v1.nrt",
+             "neuronte-ui-scaled-latin1-italic-advances-v1.nrt", "neuronte-ui-large-latin1-v1.nrt",
+             "neuronte-ui-large-latin1-v2.nrt")
+        assert name(N.weight_path(12)) == "neuronte-ui12-v2.nrt"
+        assert name(N.weight_path(12, True)) == "neuronte-ui12-italic-v2.nrt"
+        assert name(N.weight_path(24)) == "neuronte-ui-scaled-latin1-v1.nrt"
+        assert os.path.basename(N._slant_path()) == "neuronte-ui-scaled-latin1-italic-advances-v1.nrt"
+        assert N.kind(24, True) == "scaled"
+        assert name(N.weight_path(40)) == "neuronte-ui-large-latin1-v2.nrt"
+        font = os.path.join(tmp, "font")
+        os.makedirs(font)
+        # No Latin-1 drawing yet: the ASCII drawing's header, which it copies.
+        assert name(N._face_path(12, False)) == "ui-12.txt"
+        for drawn in ("ui-12-latin1.txt", "ui-12-latin1-italic.txt", "ui-12.txt"):
+            open(os.path.join(font, drawn), "w").close()
+        assert name(N._face_path(12, False)) == "ui-12-latin1.txt"
+        assert name(N._face_path(12, True)) == "ui-12-latin1-italic.txt"
+        # A 2.4.0 tree: the -v1 face reads the ASCII drawing.
+        have("neuronte-ui12-v1.nrt", "neuronte-ui-scaled-latin1-v0.nrt",
+             "neuronte-ui-scaled-latin1-italic-advances-v0.nrt")
+        assert name(N._face_path(12, False)) == "ui-12.txt"
+        assert name(N.weight_path(24)) == "neuronte-ui-scaled-latin1-v0.nrt"
+        assert os.path.basename(N._slant_path()) == "neuronte-ui-scaled-latin1-italic-advances-v0.nrt"
 finally:
     N._ROOT = real
 print("ok")

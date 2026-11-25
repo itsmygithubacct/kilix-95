@@ -49,16 +49,25 @@ corpus = ["Start", "My Computer", "12:08 AM", "WAVE AWAY fjord_Typ.{}[]|\\~^`$",
 corpus += ["".join(rng.choice(letters) for _ in range(rng.randint(1, 40)))
            for _ in range(150)]
 
+from neuronte_face_check import LATIN1, latin1_tree  # noqa: E402
+
 for em in (10, 11):
+    if latin1_tree(em):
+        corpus_em = corpus + ["Caf\u00e9 \u00a3 \u00b1 \u00d7 \u00df \u00c6", LATIN1]
+    else:
+        corpus_em = corpus
     size = N.open_size(em)
-    # COMMON is exactly what the face covers, so the start-up thread draws
-    # every letter the face can be asked for and nothing it cannot.
+    # COMMON is what an ASCII face covers, so the start-up thread draws
+    # every letter such a face can be asked for and nothing it cannot. A
+    # face with all of Latin-1 (-v2) covers U+00A0..U+00FF as well, and the
+    # start-up thread draws those too, after COMMON.
     covered = {chr(cp) for cp in range(0x3000)
                if N._lib.neuronte_advance_scalar(size.ptr, cp) == cp}
-    assert covered == set(N.COMMON), (em, covered ^ set(N.COMMON))
+    want = set(N.COMMON) | (set(LATIN1) if latin1_tree(em) else set())
+    assert covered == want, (em, covered ^ want)
     assert len(N.COMMON) == len(set(N.COMMON))
     for bold in (0, 1):
-        for text in corpus:
+        for text in corpus_em:
             with size.lock:
                 want_size, want, buf = library_mask(size, text, bold)
                 width = size.width(text, bold)
@@ -77,6 +86,8 @@ if thread is not None:
     assert not thread.is_alive()
 for font in (T.FONT, T.SMALL):
     assert {ord(ch) for ch in N.COMMON} <= set(font._face.letters.cells)
+    if latin1_tree(font._face.em):
+        assert {ord(ch) for ch in N.LATIN1} <= set(font._face.letters.cells), font._face.em
 # FONT and BOLD share one face: it is drawn once.
 assert T.FONT._face is T.BOLD._face
 # A scalable face keeps the library path.

@@ -9,7 +9,7 @@ antialiased coverage even when a widget requests binary masks.
 Fonts: chrome labels use the Neuronte desktop face when
 ``neuronte-ui{em}-v1.nrt`` is present for that size, and italic uses
 ``neuronte-ui{em}-italic-v1.nrt`` (or the earlier ``-v0`` files). Small bold is struck twice, one pixel
-apart. Upright sizes above 32 use neuronte-ui-large-v0.nrt, with scalable
+apart. Upright sizes above 32 use the neuronte-ui-large file, with scalable
 bold stroke and matching extra advances of max(1, round(em/32)) pixels.
 A size or style with no file uses the TrueType
 fallback: a .ttf in assets/fonts/ (gitignored) if you supply one, otherwise

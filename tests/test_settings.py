@@ -793,5 +793,36 @@ with conf("font_size 12\n") as target:
     assert "exact pinned runtime" in text
     assert kwargs.get("icon") == "info"
 
+# The tab status mark's settings arrived with Kilix 0.2.4. With such a Kilix
+# every one of them is offered, shown with its default and saved to the shared
+# file; with an older Kilix none is offered, because a key Kilix does not
+# manage would be written to kitty.conf instead.
+with conf("font_size 12\n") as path:
+    d = H.make_desk()
+    import apps
+    apps.open(d, "settings", None)
+    win = H.find_window(d, "SettingsWin")
+    shared = settings.shared_settings
+    managed = getattr(shared, "TAB_STATUS_DEFAULTS", {})
+    offered = [key for key, *_ in settings.TAB_STATUS if key in win.fields]
+    assert offered == list(managed), (offered, list(managed))
+    assert len(settings.TAB_STATUS) == 10
+    if managed:
+        for key, default in managed.items():
+            kind, widget = win.fields[key]
+            if kind == "bool":
+                assert widget.checked is True, key
+            else:
+                assert widget.text == default, (key, widget.text)
+        win.fields["KILIX_TAB_STATUS_HIGH_CORES"][1].set("4")
+        win.fields["KILIX_TAB_STATUS_MODERATE_COLOR"][1].set("#FFCC00")
+        win.fields["KILIX_TAB_STATUS"][1].checked = False
+        win._apply()
+        values = shared.load(win.shared_path)
+        assert values["KILIX_TAB_STATUS_HIGH_CORES"] == "4"
+        assert values["KILIX_TAB_STATUS_MODERATE_COLOR"] == "#ffcc00"
+        assert values["KILIX_TAB_STATUS"] == "0"
+        with open(path, encoding="utf-8") as stream:
+            assert "KILIX_TAB_STATUS" not in stream.read()
 
 print("ok")

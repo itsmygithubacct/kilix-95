@@ -52,6 +52,23 @@ APPEARANCE = [
         list(shared_settings.TAB_BAR_EDGE_CHOICES),
     ),
 ]
+# The mark before each tab's title (a moon while the tab works, a dot while it
+# is idle, coloured by its CPU load) arrived with Kilix 0.2.4. An older Kilix
+# does not manage these keys, and a key Kilix does not manage would be written
+# to kitty.conf, so they are offered only when the installed Kilix has them.
+TAB_STATUS = [
+    ("KILIX_TAB_STATUS", "Tab status mark", "bool", "1"),
+    ("KILIX_TAB_STATUS_MODERATE_CORES", "Yellow from (cores)", "text", None),
+    ("KILIX_TAB_STATUS_HIGH_CORES", "Red from (cores or NN%)", "text", None),
+    ("KILIX_TAB_STATUS_ACTIVE_CORES", "Working from (cores)", "text", None),
+    ("KILIX_TAB_STATUS_IDLE_AFTER_SECONDS", "Idle after quiet (s)", "text", None),
+    ("KILIX_TAB_STATUS_STEP_SECONDS", "Moon step (s)", "text", None),
+    ("KILIX_TAB_STATUS_SOFTWARE_STEP_SECONDS", "Moon step, no GPU (s)", "text", None),
+    ("KILIX_TAB_STATUS_LOW_COLOR", "Low load color", "color", None),
+    ("KILIX_TAB_STATUS_MODERATE_COLOR", "Moderate load color", "color", None),
+    ("KILIX_TAB_STATUS_HIGH_COLOR", "High load color", "color", None),
+]
+APPEARANCE += [item for item in TAB_STATUS if item[0] in shared_settings.MANAGED_KEYS]
 BEHAVIOR = [
     ("scrollback_lines", "Scrollback lines", "text", None),
     ("enable_audio_bell", "Audio bell", "bool", "no"),
