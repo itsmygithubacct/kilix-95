@@ -559,6 +559,20 @@ class Taskbar:
                 # one of the models this downloads, and they share one copy.
                 MI("BitNet Models", icon="bonsai",
                    action=shell.open_kilix_bonsai),
+                # llama.cpp installs and builds itself on the first chat;
+                # right-click reaches its status, updater and rollback.
+                MI("Local Models (llama.cpp)", icon="chat",
+                   action=lambda: shell.open_kilix_llama("chat"),
+                   context=[
+                       MI("Chat", action=lambda: shell.open_kilix_llama("chat")),
+                       MI("Status", action=lambda: shell.open_kilix_llama("status")),
+                       MI("Update llama.cpp",
+                          action=lambda: shell.open_kilix_llama("update")),
+                       MI("Roll Back Last Update",
+                          action=lambda: shell.open_kilix_llama("rollback")),
+                       MI("Install and Build Now",
+                          action=lambda: shell.open_kilix_llama("install")),
+                   ]),
                 # A painter, but of meaning rather than pixels: which parts
                 # of a camera view to ignore, which parts of a room can be
                 # walked on.
